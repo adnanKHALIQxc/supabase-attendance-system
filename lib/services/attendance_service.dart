@@ -148,6 +148,55 @@ class AttendanceService {
         .toList();
   }
 
+    /// Per-subject breakdown of a single student's attendance in a section.
+  Future<List<({String subjectId, String subjectName, int totalSlots, int attendedSlots})>>
+      getStudentAttendanceBreakdown({
+    required String studentId,
+    required String sectionId,
+  }) async {
+    final res = await _client.rpc('get_student_attendance_breakdown', params: {
+      'p_student_id': studentId,
+      'p_section_id': sectionId,
+    });
+
+    final list = (res as List? ?? []);
+    return list
+        .map((e) => (
+              subjectId: (e['subject_id'] as String?) ?? '',
+              subjectName: (e['subject_name'] as String?) ?? '',
+              totalSlots: (e['total_slots'] as int?) ?? 0,
+              attendedSlots: (e['attended_slots'] as int?) ?? 0,
+            ))
+        .toList();
+  }
+
+  /// Get all attendance records for a single student in a section.
+  Future<List<AttendanceRecord>> getStudentRecords({
+    required String studentId,
+    required String sectionId,
+  }) async {
+    // Get session IDs for this section
+    final sessionRows = await _client
+        .from('attendance_sessions')
+        .select('id')
+        .eq('section_id', sectionId);
+
+    final sessionIds =
+        (sessionRows as List).map((r) => r['id'] as String).toList();
+    if (sessionIds.isEmpty) return [];
+
+    final rows = await _client
+        .from('attendance_records')
+        .select()
+        .eq('student_id', studentId)
+        .inFilter('session_id', sessionIds)
+        .order('marked_at', ascending: false);
+
+    return (rows as List)
+        .map((r) => AttendanceRecord.fromSupabase(r as Map<String, dynamic>))
+        .toList();
+  }
+
   String _formatDate(DateTime d) {
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
