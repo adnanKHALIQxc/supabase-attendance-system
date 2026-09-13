@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/assignment_service.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'mark_attendance_screen.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -22,6 +23,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _reload();
+  }
+
+  void _reload() {
     final uid = AuthService().currentUser?.id;
     _future = uid == null
         ? Future.value(<TeachingAssignment>[])
@@ -82,8 +87,13 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                   title: Text(a.subjectName),
                   subtitle: Text('Section ${a.sectionId}'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // Next: mark attendance
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MarkAttendanceScreen(assignment: a),
+                      ),
+                    );
                   },
                 ),
               );
