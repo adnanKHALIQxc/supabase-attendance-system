@@ -1,0 +1,21 @@
+# 1. Create a new branch for what you're about to do
+git checkout -b feature/add-attendance-marking
+
+# 2. Make your changes in the code...
+
+# 3. Stage and commit
+git add .
+git commit -m "feat: add attendance marking screen"
+
+# 4. Push the branch to GitHub
+git push -u origin feature/add-attendance-marking
+
+# 5. Go to GitHub, click "Compare & pull request", then merge it
+#    (This creates a nice PR record on your profile)
+
+# 6. Back in terminal, switch to main and pull the merged changes
+git checkout main
+git pull
+
+# 7. Delete the local branch (no longer needed)
+git branch -d feature/add-attendance-marking

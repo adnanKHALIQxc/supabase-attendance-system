@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "807237372321",
+    "project_id": "uniattend-3404a",
+    "storage_bucket": "uniattend-3404a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807237372321:android:f4d8336162226d9aa4a3e0",
+        "android_client_info": {
+          "package_name": "com.example.university_attendance_system"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWtylNs5sKxc2rLq0VELu89Y-IxTN_DwY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
