@@ -1,397 +1,621 @@
-================================================================================
-  UNIVERSITY ATTENDANCE SYSTEM — MASTER PROJECT LOG
-================================================================================
-  Project Name     : University Attendance System (UniAttend)
-  Author           : Adnan Khaliq (adnanKHALIQxc)
-  Platform         : Flutter (Android / iOS / Web / Windows)
-  Current Backend  : Supabase (PostgreSQL)
-  Previous Backend : Firebase (Firestore + Auth) — kept as backup
+################################################################################
+#                                                                              #
+#                    UNIATTEND — MASTER PROJECT REPORT                         #
+#                                                                              #
+#        A Complete Reference Document for the University Attendance           #
+#                        Management System (v1.0)                              #
+#                                                                              #
+################################################################################
 
-  Repos:
-    Firebase (OLD / backup):
-      https://github.com/adnanKHALIQxc/university-attendance-system
-    Supabase (ACTIVE):
-      https://github.com/adnanKHALIQxc/supabase-attendance-system
+  Project Name    : University Attendance System (UniAttend)
+  Author          : Adnan Khaliq (adnanKHALIQxc)
+  Platform        : Flutter (Android / iOS / Web / Windows / macOS / Linux)
+  Current Backend : Supabase (PostgreSQL + Auth + Edge Functions + RLS)
+  Legacy Backend  : Firebase (kept as backup, deprecated)
 
-  Local folders:
-    Firebase (backup): D:\university_attendance_system\university_attendance_system\
-    Supabase (active): D:\SupaBase-Attendance-System\
+  Repositories:
+    ACTIVE  : https://github.com/adnanKHALIQxc/supabase-attendance-system
+    BACKUP  : https://github.com/adnanKHALIQxc/university-attendance-system
 
-  Last Updated : After attendance tables + RPC deployed
-================================================================================
+  Local Folders:
+    ACTIVE  : D:\SupaBase-Attendance-System\
+    BACKUP  : D:\university_attendance_system\university_attendance_system\
 
-================================================================================
-SECTION 1 — PROJECT OVERVIEW
-================================================================================
-University attendance system with two portals:
-  - ADMIN   : Manages departments, sections, teachers, students, subjects,
-              assignments, reports, exports
-  - TEACHER : Marks attendance, views assigned classes, sees history
+  Document Purpose:
+    This file is the single source of truth. Paste it at the beginning of any
+    new conversation, chat, or code review session to bring the reader up to
+    speed within 60 seconds. It contains project history, architecture, file
+    inventory, error log, migration notes, status, and roadmap.
 
-Auth model:
-  - Admin creates teacher accounts from admin portal
-  - System auto-generates a 6-digit login ID + 8-char random password
-  - Trick: uses synthetic email `<id>@uniattend.app`
-  - Teacher can log in with the 6-digit ID + password
-  - Admin can reset any teacher's password via Edge Function
+  Last Updated : After Attendance Export feature
 
-Database tables (Supabase):
-  departments, teachers, admins, sections, students, subjects,
-  teaching_assignments, attendance_sessions, attendance_records
 
-================================================================================
-SECTION 2 — WHY WE MIGRATED FROM FIREBASE TO SUPABASE
-================================================================================
-Firebase Spark (free) plan limitations:
-  - Cloud Functions require Blaze (pay-as-you-go) plan
-  - Blaze requires a billing card (not viable for a Pakistani student)
-  - Password reset needs server-side Admin SDK → blocked on Spark
-  - Firebase also cut free tier reads by 60% in July 2025
+################################################################################
+#                                                                              #
+#  SECTION 1 — EXECUTIVE SUMMARY                                               #
+#                                                                              #
+################################################################################
 
-Alternatives evaluated:
-  - Appwrite: free tier OK, but UI laggy and migration tool crashed
-              on nested structures. Rejected.
-  - PocketBase: self-hosted only. Requires laptop 24/7. Rejected.
-  - Supabase: ✅ CHOSEN.
+UniAttend is a full-stack university attendance management system with two
+distinct user portals:
 
-Supabase Free Tier:
-  - 500 MB database
-  - 1 GB file storage
-  - 50,000 Monthly Active Users
-  - 500,000 Edge Function invocations/month
-  - Unlimited API requests
-  - No credit card required
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ ADMIN PORTAL                                                        │
+  │   - Manage departments (CS, EE, BBA, ...)                          │
+  │   - Manage sections within each department/year                    │
+  │   - Manage students (manual + bulk Excel/CSV import)              │
+  │   - Manage teachers (auto-generated 6-digit IDs + passwords)      │
+  │   - Manage subjects (dept-specific, with credit hours)            │
+  │   - Assign teachers to subjects in sections                       │
+  │   - View attendance records across all sections                   │
+  │   - Export attendance as Excel/PNG (per student, per section)     │
+  │   - Reset teacher passwords via Edge Function                     │
+  └─────────────────────────────────────────────────────────────────────┘
 
-Estimated time to hit limits (1,200 students, 120 teachers, realistic usage):
-  - Database size   : ~10 years
-  - Bandwidth       : ~8 years casual / ~1.5 years heavy
-  - Edge Functions  : never
-  - MAUs            : ~34 years
-  - Project pausing : auto-paused after 7 days inactivity (easy to unpause)
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ TEACHER PORTAL                                                      │
+  │   - Log in with 6-digit ID + password                             │
+  │   - See only assigned classes (subject + section)                 │
+  │   - Mark attendance: present/absent per student                   │
+  │   - Support for 1-slot and 2-slot (combined) classes              │
+  │   - View attendance summary: per-student %, attended / conducted  │
+  │   - Credit-hour cap prevents over-marking (credit_hours × 15)     │
+  │   - One class per subject per section per day                     │
+  └─────────────────────────────────────────────────────────────────────┘
 
-================================================================================
-SECTION 3 — TECH STACK (CURRENT)
-================================================================================
-Frontend         : Flutter (Dart)
-State Management : Provider
-Backend          : Supabase
-  - Auth (email/password)
-  - PostgreSQL database
-  - Row Level Security (RLS)
-  - Edge Functions (Deno) for server-side logic
-  - RPC functions (SQL functions invoked from client)
+Key design decisions:
+  • Synthetic emails: <6-digit-id>@uniattend.app used as Supabase Auth emails
+    because Auth requires email format but teachers never see it
+  • Denormalized fields: teacher_name, subject_name copied into assignment
+    and session tables for fast reads + historical accuracy
+  • RPCs for atomic operations: mark_attendance, increment_section_students,
+    get_attendance_summary, get_section_attendance_report
+  • Row Level Security (RLS) on every table with auth_read + auth_write policies
+  • Feature-first folder structure (models / screens / services / providers)
+  • All Firebase references removed; fully migrated to Supabase
 
-Packages in pubspec.yaml:
-  supabase_flutter, provider, file_picker, csv, excel, cupertino_icons
 
-Dev Tools:
-  Flutter, VS Code, Git, GitHub, GitHub Actions (CI)
+################################################################################
+#                                                                              #
+#  SECTION 2 — ARCHITECTURE OVERVIEW                                           #
+#                                                                              #
+################################################################################
 
-================================================================================
-SECTION 4 — FOLDER STRUCTURE
-================================================================================
-OLD (preserved, Firebase backup):
-  D:\university_attendance_system\university_attendance_system\
+                          ┌──────────────────────┐
+                          │    FLUTTER APP       │
+                          │  (Web / Android /    │
+                          │   iOS / Desktop)     │
+                          └──────────┬───────────┘
+                                     │
+                          ┌──────────▼───────────┐
+                          │  supabase_flutter    │
+                          │  (official SDK)      │
+                          └──────────┬───────────┘
+                                     │
+        ┌────────────────────────────┼────────────────────────────┐
+        │                            │                            │
+        ▼                            ▼                            ▼
+  ┌──────────┐              ┌──────────────┐              ┌──────────────┐
+  │  AUTH    │              │  DATABASE    │              │  EDGE FN     │
+  │ JWT      │              │  PostgreSQL  │              │  Deno        │
+  │ bcrypt   │              │  + RLS       │              │              │
+  └──────────┘              └──────────────┘              └──────────────┘
+                                     │                            │
+                                     │                            │
+                          ┌──────────▼───────────┐                 │
+                          │  RPC FUNCTIONS       │                 │
+                          │  - mark_attendance   │                 │
+                          │  - get_summary       │                 │
+                          │  - section_report    │                 │
+                          └──────────────────────┘                 │
+                                                                   │
+                                    ┌──────────────────────────────┘
+                                    │
+                          ┌─────────▼──────────┐
+                          │  reset-teacher-    │
+                          │  password          │
+                          │  (uses Admin SDK)  │
+                          └────────────────────┘
 
-NEW (working, Supabase):
+Data flow example — Teacher marks attendance:
+  1. Teacher taps Submit on Mark Attendance screen
+  2. AttendanceService.markAttendance() called
+  3. supabase.rpc('mark_attendance', params: {...})
+  4. RPC validates:
+     - Not already marked today for this subject+section
+     - Slot cap not exceeded (credit_hours × 15)
+  5. RPC inserts:
+     - 1 row in attendance_sessions
+     - N rows in attendance_records (one per student)
+  6. Session ID returned to client
+  7. Client shows success, pops back
+
+
+################################################################################
+#                                                                              #
+#  SECTION 3 — COMPLETE PROJECT TREE                                           #
+#                                                                              #
+################################################################################
+
   D:\SupaBase-Attendance-System\
-
-Folder structure (both versions):
-  ├── .github/workflows/ci.yml
-  ├── .gitignore
-  ├── Project.txt
-  ├── README.md
-  ├── pubspec.yaml
-  ├── analysis_options.yaml
-  ├── android/ ios/ web/ windows/ linux/ macos/
-  ├── lib/
-  │   ├── core/supabase_config.dart
-  │   ├── main.dart
-  │   ├── models/
+  │
+  ├── .github/
+  │   └── workflows/
+  │       └── ci.yml ........................ GitHub Actions CI pipeline
+  │
+  ├── .gitignore ........................... Git ignore rules
+  │
+  ├── android/ ............................. Android platform (auto-generated)
+  ├── ios/ ................................. iOS platform (auto-generated)
+  ├── web/ ................................. Web platform (auto-generated)
+  ├── windows/ ............................. Windows platform (auto-generated)
+  ├── linux/ ............................... Linux platform (auto-generated)
+  ├── macos/ ............................... macOS platform (auto-generated)
+  │
+  ├── lib/ ................................. ALL FLUTTER CODE
+  │   │
+  │   ├── main.dart ........................ App entry point
+  │   │
+  │   ├── core/
+  │   │   └── supabase_config.dart ......... URL + anon key (public)
+  │   │
+  │   ├── models/ .......................... Data classes
   │   │   ├── department.dart
   │   │   ├── section.dart
   │   │   ├── student.dart
   │   │   ├── teacher.dart
   │   │   ├── subject.dart
-  │   │   └── teaching_assignment.dart
-  │   ├── providers/
+  │   │   ├── teaching_assignment.dart
+  │   │   ├── attendance_session.dart
+  │   │   ├── attendance_record.dart
+  │   │   ├── attendance_summary.dart
+  │   │   └── student_report.dart ......... (for export feature)
+  │   │
+  │   ├── providers/ ....................... State management
   │   │   └── auth_provider.dart
-  │   ├── screens/
-  │   │   ├── login_screen.dart
-  │   │   ├── admin_dashboard_screen.dart
-  │   │   ├── teacher_dashboard_screen.dart
-  │   │   ├── add_teacher_screen.dart
-  │   │   ├── teachers_list_screen.dart
-  │   │   ├── departments_list_screen.dart
-  │   │   ├── add_department_screen.dart
-  │   │   ├── years_screen.dart
-  │   │   ├── sections_list_screen.dart
-  │   │   ├── add_section_screen.dart
-  │   │   ├── section_detail_screen.dart
-  │   │   ├── add_student_screen.dart
-  │   │   ├── import_students_screen.dart
-  │   │   ├── subjects_list_screen.dart
-  │   │   ├── add_subject_screen.dart
-  │   │   └── assign_teacher_screen.dart
-  │   └── services/
-  │       ├── auth_service.dart
-  │       ├── department_service.dart
-  │       ├── section_service.dart
-  │       ├── student_service.dart
-  │       ├── teacher_service.dart
-  │       ├── subject_service.dart
-  │       ├── assignment_service.dart
-  │       ├── student_import_service.dart
-  │       └── password_service.dart
-  └── test/widget_test.dart
+  │   │
+  │   ├── services/ ........................ Supabase data layer
+  │   │   ├── auth_service.dart
+  │   │   ├── department_service.dart
+  │   │   ├── section_service.dart
+  │   │   ├── student_service.dart
+  │   │   ├── teacher_service.dart
+  │   │   ├── subject_service.dart
+  │   │   ├── assignment_service.dart
+  │   │   ├── attendance_service.dart
+  │   │   ├── student_import_service.dart
+  │   │   ├── password_service.dart
+  │   │   └── export_service.dart ......... (Excel + PNG + ZIP)
+  │   │
+  │   └── screens/ ......................... UI screens
+  │       ├── login_screen.dart
+  │       ├── admin_dashboard_screen.dart
+  │       ├── teacher_dashboard_screen.dart
+  │       ├── add_teacher_screen.dart
+  │       ├── teachers_list_screen.dart
+  │       ├── departments_list_screen.dart
+  │       ├── add_department_screen.dart
+  │       ├── years_screen.dart
+  │       ├── sections_list_screen.dart
+  │       ├── add_section_screen.dart
+  │       ├── section_detail_screen.dart
+  │       ├── add_student_screen.dart
+  │       ├── import_students_screen.dart
+  │       ├── subjects_list_screen.dart
+  │       ├── add_subject_screen.dart
+  │       ├── assign_teacher_screen.dart
+  │       ├── mark_attendance_screen.dart
+  │       ├── subject_attendance_screen.dart
+  │       ├── section_attendance_screen.dart
+  │       ├── subject_sessions_screen.dart
+  │       ├── session_detail_screen.dart
+  │       ├── student_attendance_screen.dart
+  │       └── export_helpers.dart
+  │
+  ├── test/
+  │   └── widget_test.dart ................. CI placeholder test
+  │
+  ├── pubspec.yaml ......................... Dependencies manifest
+  ├── analysis_options.yaml ................ Lint rules
+  ├── Project.txt .......................... THIS FILE
+  └── README.md ............................ Public-facing description
 
-================================================================================
-SECTION 5 — SUPABASE PROJECT DETAILS
-================================================================================
-Org         : UniAttend (Personal, Free plan)
-Project     : uniattend
-Region      : Southeast Asia (Singapore) — ap-southeast-1
-URL         : (stored in lib/core/supabase_config.dart)
-anon key    : (stored in lib/core/supabase_config.dart)
-DB password : (saved separately)
 
-Tables auto-create via SQL Editor scripts (see Section 6).
+################################################################################
+#                                                                              #
+#  SECTION 4 — FILE-BY-FILE DETAILED GUIDE                                     #
+#                                                                              #
+################################################################################
 
-================================================================================
-SECTION 6 — SUPABASE SETUP PROGRESS
-================================================================================
-[x] Account + project created
-[x] Region: Singapore
-[x] 9 tables created via SQL Editor:
-      departments, teachers, admins, sections, students,
-      subjects, teaching_assignments,
-      attendance_sessions, attendance_records
-[x] Row Level Security enabled on all tables
-[x] Policies: auth_read + auth_write (authenticated users)
-[x] Created lib/core/supabase_config.dart
-[x] Rewrote lib/main.dart for Supabase init
-[x] Rewrote lib/services/auth_service.dart
-[x] Rewrote all models (fromSupabase factories)
-[x] Rewrote all service files
-[x] RPC: increment_section_students
-[x] RPC: mark_attendance (atomic session + records insert)
-[x] Added teachers.login_code column
-[x] Added teachers.has_changed_password column
-[x] Edge Function deployed: reset-teacher-password
-[x] Trigger: trg_auto_confirm_users (auto-confirms new signups)
-[x] Disabled "Confirm email" in Auth → Providers → Email
-[x] Login works for admin + teacher
-[x] Teacher creation works
-[x] Password reset works
-[x] New GitHub repo created: supabase-attendance-system
-[x] Pushed initial code to new repo
-[x] CI workflow added + passing
-[x] Attendance refinements (slot count, credit-hour cap, per-day lock)
-[x] Subject attendance summary screen
+────────────────────────────────────────────────────────────────────────────────
+ main.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : App entry point, Supabase initialization, provider setup
+  Key code  :
+    • WidgetsFlutterBinding.ensureInitialized()
+    • Supabase.initialize(url, publishableKey)
+    • MultiProvider with AuthService + AuthProvider
+    • MaterialApp → LoginScreen
+  Notes     : Changing the Supabase URL here affects the entire app.
 
-IN PROGRESS:
-[ ] Attendance marking code (models + services + screens)
+────────────────────────────────────────────────────────────────────────────────
+ core/supabase_config.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Single source of truth for Supabase connection
+  Key code  :
+    static const String url = 'https://zapikewungaqlstvnocj.supabase.co';
+    static const String anonKey = 'eyJ...';
+  Notes     : Safe to commit. The anon key is public by design; RLS policies
+              determine what data is accessible.
 
-================================================================================
-SECTION 7 — TABLE SCHEMAS (Supabase = snake_case)
-================================================================================
-departments          : id(text PK), name, is_active, created_at
+────────────────────────────────────────────────────────────────────────────────
+ providers/auth_provider.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : State management for auth (isLoading, role, errorMessage)
+  Key code  :
+    • login(id, password) → bool
+    • logout()
+    • getters: isAdmin, isTeacher, isLoading, errorMessage
+  Notes     : Uses ChangeNotifier. Screens call context.watch/read<AuthProvider>.
 
-teachers             : id(text PK = auth UID), login_code(text unique),
-                       full_name, contact_email, auth_email, role,
-                       is_active, has_changed_password(bool), created_at
+────────────────────────────────────────────────────────────────────────────────
+ services/auth_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : All Supabase Auth operations
+  Key code  :
+    • login(id, password) → (role, error)
+      - builds email <id>@uniattend.app
+      - signInWithPassword
+      - checks teachers table first, then admins
+      - returns role from DB
+    • logout()
+    • createTeacher(fullName, contactEmail)
+      - generates 6-digit ID + 8-char password
+      - uses SECONDARY client (AuthFlowType.implicit) to not disturb admin
+      - inserts into teachers table
+      - returns credentials for admin display
+  Notes     : Role lookup MUST check teachers first — checking admins first
+              breaks due to RLS (see Error E19).
 
-admins               : id(text PK = auth UID), full_name, email, role,
-                       is_active, created_at
+────────────────────────────────────────────────────────────────────────────────
+ services/department_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : CRUD for departments
+  Key code  :
+    • createDepartment(id, name) — uppercases id, checks duplicate
+    • getAllDepartments() — filters is_active = true
+  Notes     : Department ID is the PK (e.g., "CS", "EE").
 
-sections             : id(text PK, e.g. "CS-3A"),
-                       department_id→departments,
-                       year(int 1-4), name, academic_year,
-                       total_students(int), is_active, created_at
+────────────────────────────────────────────────────────────────────────────────
+ services/section_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : CRUD for sections + multi-fetch by ids
+  Key code  :
+    • buildId(dept, year, name) → "CS-3A"
+    • createSection(...) — auto-generates ID, duplicate check
+    • getSections(deptId, year)
+    • getSectionsByIds(ids) — used by teacher dashboard
+  Notes     : Section IDs are human-readable, not UUIDs.
 
-students             : id(uuid PK auto), full_name, roll_no,
-                       enrollment_id,
-                       department_id→departments, section_id→sections,
-                       year(int), is_active, created_at,
-                       unique(section_id, roll_no)
+────────────────────────────────────────────────────────────────────────────────
+ services/student_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : CRUD for students + section counter increment
+  Key code  :
+    • addStudent(...) — insert + RPC increment_section_students
+    • getStudents(sectionId) — sorted by roll_no
+  Notes     : Uses RPC so counter increments atomically.
 
-subjects             : id(text PK, e.g. "CS301"), name, credit_hours(int),
-                       department_id→departments, year(int), semester(int),
-                       is_active, created_at
+────────────────────────────────────────────────────────────────────────────────
+ services/teacher_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Read-only access to teacher profiles
+  Key code  :
+    • getAllTeachers() — sorted by name
+    • getTeacher(uid)
 
-teaching_assignments : id(uuid PK auto), teacher_id→teachers,
-                       teacher_name, subject_id→subjects, subject_name,
-                       section_id→sections, academic_year, semester(int),
-                       created_at
+────────────────────────────────────────────────────────────────────────────────
+ services/subject_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : CRUD for subjects
+  Key code  :
+    • createSubject(...) — id "CS301", duplicate check
+    • getAllSubjects()
+    • getSubjectsFor(deptId, year) — used in Assign Teacher screen
 
-attendance_sessions  : id(uuid PK auto), subject_id→subjects, subject_name,
-                       section_id→sections, teacher_id→teachers,
-                       teacher_name, date(date), slot(text),
-                       start_time, end_time,
-                       total_students, present_count, absent_count,
-                       late_count(int), status(text), created_at,
-                       unique(subject_id, section_id, date, slot)
+────────────────────────────────────────────────────────────────────────────────
+ services/assignment_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Manages (teacher, subject, section) trios
+  Key code  :
+    • createAssignment(...) — duplicate check on (subject, section)
+      NOTE: only ONE teacher per subject per section
+    • deleteAssignment(id)
+    • getAssignmentsForSection(sectionId)
+    • getAssignmentsForTeacher(teacherId)
+  Notes     : Denormalizes teacher_name + subject_name for historical accuracy.
 
-attendance_records   : id(uuid PK auto), session_id→attendance_sessions,
-                       student_id→students, student_name, roll_no,
-                       status(text: present|absent|late|excused),
-                       remarks, marked_at,
-                       unique(session_id, student_id)
+────────────────────────────────────────────────────────────────────────────────
+ services/attendance_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Attendance operations
+  Key code  :
+    • markAttendance(...) → calls mark_attendance RPC
+        - slot, slot_count, start_time, end_time
+        - list of per-student records
+    • canMarkToday(...) — pre-check for today's session + credit cap
+    • getSummary(...) → get_attendance_summary RPC
+    • getSessionsForSection(sectionId)
+    • getSessionsForTeacher(teacherId)
+    • getRecordsForSession(sessionId)
+    • getStudentAttendanceBreakdown(studentId, sectionId)
+    • getSectionReport(sectionId) — for exports
+  Notes     : The RPC enforces business rules server-side; client just calls.
 
-RLS: every table has auth_read + auth_write policies for authenticated users.
+────────────────────────────────────────────────────────────────────────────────
+ services/student_import_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Bulk import students from Excel/CSV
+  Key code  :
+    • parseAndValidate(file, section) → ImportResult
+        - header aliases (name, fullName, rollNo, etc.)
+        - validates name / rollNo / enrollmentId
+        - detects duplicates: in file AND in DB
+        - atomic: rejects entire file if any row has errors
+    • executeImport(rows, section) — batch insert + increment
+  Notes     : Handles both .xlsx and .csv. Strips UTF-8 BOM. Allows forward
+              slashes in roll numbers (e.g., NED/0234/2024).
+
+────────────────────────────────────────────────────────────────────────────────
+ services/password_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Calls Supabase Edge Function for password reset
+  Key code  :
+    • resetTeacherPassword(uid) → returns new password
+
+────────────────────────────────────────────────────────────────────────────────
+ services/export_service.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Generates ZIP files with Excel + PNG reports
+  Key code  :
+    • generateSectionZip(...) — one section, one folder level
+    • generateYearZip(...) — all sections nested
+    • _buildStudentExcel() — Summary sheet + one sheet per subject
+    • _buildStudentPng() — report card image
+    • _studentFileName() — "ROLLNO_Name.xlsx"
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/login_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Login UI with 6-digit ID + password
+  Features  : Eye icon toggle, no autocorrect, no autocapitalize
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/admin_dashboard_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Admin home — 3 cards: Departments, Subjects, Teachers
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/teacher_dashboard_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Teacher home — list of assigned classes
+  Features  : Tap class → SubjectAttendanceScreen
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/departments_list_screen.dart / add_department_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Department CRUD. Download icon on each row → export year ZIP.
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/years_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Shows 1st–4th year. Each row has download icon → exports
+              entire year as ZIP.
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/sections_list_screen.dart / add_section_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Section CRUD. Download icon → export section ZIP.
+  Notes     : AddSectionScreen previews the generated ID live.
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/section_detail_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Admin view of a section — 3 cards:
+              1. Teaching Assignments
+              2. Attendance (link to section attendance)
+              3. Students (tappable → student attendance breakdown)
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/import_students_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : File picker → preview → validate → import
+  Features  : Per-row error listing, all-or-nothing semantics
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/mark_attendance_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Teacher marks attendance
+  Features  :
+    • Date locked to today (no picker)
+    • Slots dropdown: 1 / 2
+    • Time dropdown adapts (single-slot vs double-slot ranges)
+    • Present / Absent toggle per student (no Late)
+    • Quick actions: All Present / All Absent
+    • Submit → RPC
+  Notes     : Slots list hardcoded — could move to a time_slots table later.
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/subject_attendance_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Teacher's view of a class — header + per-student attendance
+  Features  :
+    • Header: slots conducted / max (from credit_hours × 15)
+    • Student cards: attended / total + %
+    • Color-coded: green ≥75%, orange 60-75%, red <60%
+    • Top-right "add_task" icon → mark attendance
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/section_attendance_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Admin view of all attendance in a section
+  Features  : Subject cards → tap → SubjectSessionsScreen
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/subject_sessions_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : All sessions held for one subject in a section
+  Features  : Header (total slots, session count), session cards
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/session_detail_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Detailed view of one session
+  Features  : Summary chips (Total/Present/Absent), per-student status icons
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/student_attendance_screen.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : Per-student breakdown across all subjects
+  Features  : Subject rows with attended / total + %
+
+────────────────────────────────────────────────────────────────────────────────
+ screens/export_helpers.dart
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : showExportMenu() + runExport() utilities
+
+────────────────────────────────────────────────────────────────────────────────
+ .github/workflows/ci.yml
+────────────────────────────────────────────────────────────────────────────────
+  Purpose   : CI pipeline
+  Steps     : Java 17 → Flutter stable → pub get → analyze → test
+  Triggers  : push to main, PRs targeting main
+
+
+################################################################################
+#                                                                              #
+#  SECTION 5 — DATABASE SCHEMA (SUPABASE)                                      #
+#                                                                              #
+################################################################################
+
+9 tables + 1 audit-friendly design:
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ departments                                                                │
+  │   id (text PK)  |  name (text)  |  is_active (bool)  |  created_at (ts)    │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ teachers                                                                   │
+  │   id (text PK = auth UID)  |  login_code (unique)  |  full_name           │
+  │   contact_email  |  auth_email  |  role  |  is_active                     │
+  │   has_changed_password (bool)  |  created_at                              │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ admins                                                                     │
+  │   id (text PK = auth UID)  |  full_name  |  email  |  role  |  is_active   │
+  │   created_at                                                              │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ sections                                                                   │
+  │   id (text PK) = "CS-3A"  |  department_id FK  |  year  |  name           │
+  │   academic_year  |  total_students  |  is_active  |  created_at          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ students                                                                   │
+  │   id (uuid PK)  |  full_name  |  roll_no  |  enrollment_id                │
+  │   department_id FK  |  section_id FK  |  year  |  is_active  |  created_at│
+  │   UNIQUE(section_id, roll_no)                                             │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ subjects                                                                   │
+  │   id (text PK) = "CS301"  |  name  |  credit_hours  |  department_id FK   │
+  │   year  |  semester  |  is_active  |  created_at                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ teaching_assignments                                                       │
+  │   id (uuid PK)  |  teacher_id FK  |  teacher_name (denorm)                │
+  │   subject_id FK  |  subject_name (denorm)  |  section_id FK               │
+  │   academic_year  |  semester  |  created_at                               │
+  │   UNIQUE(subject_id, section_id) — one teacher per subject per section    │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ attendance_sessions                                                        │
+  │   id (uuid PK)  |  subject_id FK  |  subject_name (denorm)                │
+  │   section_id FK  |  teacher_id FK  |  teacher_name (denorm)               │
+  │   date (date)  |  slot (text)  |  slot_count (int 1 or 2)                 │
+  │   start_time  |  end_time                                                 │
+  │   total_students  |  present_count  |  absent_count  |  status            │
+  │   created_at                                                              │
+  │   UNIQUE(subject_id, section_id, date)                                    │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ attendance_records                                                         │
+  │   id (uuid PK)  |  session_id FK  |  student_id FK                        │
+  │   student_name (denorm)  |  roll_no (denorm)  |  status                   │
+  │   remarks  |  marked_at                                                   │
+  │   UNIQUE(session_id, student_id)                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+RLS Policies:
+  • Every table: auth_read for SELECT to authenticated
+  • Every table: auth_write for INSERT/UPDATE/DELETE to authenticated
+  • NOTE: Currently too permissive — any teacher can write anywhere.
+          Tightening is in the Security Roadmap (Section 12).
 
 RPC Functions:
-  increment_section_students(p_section_id text, p_delta int) → void
-  mark_attendance(...) → uuid
-    - atomic insert of one session + its records
-    - rejects duplicate (subject, section, date, slot)
+  • increment_section_students(p_section_id, p_delta)
+  • mark_attendance(...) — atomic session + records insert
+  • get_attendance_summary(p_subject_id, p_section_id)
+  • get_section_attendance_report(p_section_id)
+  • get_student_attendance_breakdown(p_student_id, p_section_id)
 
 Triggers:
-  trg_auto_confirm_users on auth.users
-    - auto-sets email_confirmed_at on every new signup
-    - needed because even with "Confirm email" OFF, Supabase leaves
-      new signups unconfirmed
+  • trg_auto_confirm_users on auth.users — auto-confirms new signups
 
 Edge Functions:
-  reset-teacher-password (Deno)
-    - verifies caller is admin
-    - generates new 8-char password
-    - updates target user via Admin API
-    - returns new plaintext password
+  • reset-teacher-password (Deno, uses Admin SDK)
 
-================================================================================
-SECTION 8 — FIREBASE SETUP (HISTORICAL — for reference)
-================================================================================
-Project ID       : uniattend-3404a
-Plan             : Spark (free)
-Enabled          : Authentication (Email/Password), Cloud Firestore
-Region           : asia-south1 (Mumbai)
 
-Test Accounts (Firebase, now deprecated):
-  - Teacher : id=123456, password=test1234
-  - Admin   : id=999999, password=admin1234
+################################################################################
+#                                                                              #
+#  SECTION 6 — FIREBASE HISTORY (ARCHIVED)                                     #
+#                                                                              #
+################################################################################
 
-Seeded Data (Firebase):
-  - departments/CS → { id: "CS", name: "Computer Science", isActive: true }
+Project ID : uniattend-3404a
+Plan       : Spark (free)
+Region     : asia-south1 (Mumbai)
+Services   : Authentication (email/password), Cloud Firestore
 
-Current Supabase test accounts (seeded manually):
-  - Admin  : id=999999, password=admin1234
-             → Auth user 999999@uniattend.app + admins row (matching UID)
-  - Teacher: id=123456, password=test1234
-             → Auth user 123456@uniattend.app + teachers row (matching UID,
-               login_code="123456")
-  - Department CS, and some test sections/students from earlier testing
+Test accounts (now deprecated):
+  • Admin  : 999999@uniattend.local / admin1234
+  • Teacher: 123456@uniattend.local / test1234
 
-================================================================================
-SECTION 9 — FILES & THEIR PURPOSES
-================================================================================
-lib/main.dart
-  - Initializes Supabase (url + publishableKey)
-  - Wraps app in MultiProvider (AuthService + AuthProvider)
-  - Launches LoginScreen
+Why we left:
+  • Cloud Functions require Blaze plan (paid, needs card)
+  • Password reset feature needs server-side Admin SDK
+  • Firebase cut free tier reads by 60% in July 2025
+  • Blaze requires billing card — not viable for a Pakistani student
 
-lib/core/supabase_config.dart
-  - Supabase URL + anon (publishable) key
-  - Safe to commit (anon key is public by design)
+The Firebase version is preserved for historical reference and possible
+future re-deployment if the project scales enough to justify Blaze costs.
 
-lib/providers/auth_provider.dart
-  - State: isLoading, errorMessage, role
-  - Methods: login(id, password), logout()
-  - Getters: isAdmin, isTeacher
 
-lib/services/auth_service.dart
-  - login(id, password) → (role, error)
-  - logout()
-  - createTeacher(fullName, contactEmail)
-      * uses secondary SupabaseClient with AuthFlowType.implicit
-      * generates 6-digit id + 8-char password
-      * writes to teachers table
-      * returns credentials for admin display
+################################################################################
+#                                                                              #
+#  SECTION 7 — FIREBASE → SUPABASE MIGRATION NOTES                             #
+#                                                                              #
+################################################################################
 
-lib/services/department_service.dart
-  - createDepartment(id, name) — duplicate check, uppercase id
-  - getAllDepartments()
-
-lib/services/section_service.dart
-  - createSection(dept, year, name, academicYear) — id "CS-3A"
-  - getSections(deptId, year)
-  - getSectionsByIds(ids)
-
-lib/services/student_service.dart
-  - addStudent(...) → insert + RPC increment_section_students
-  - getStudents(sectionId)
-
-lib/services/teacher_service.dart
-  - getAllTeachers()
-  - getTeacher(uid)
-
-lib/services/subject_service.dart
-  - createSubject(...) — id "CS301", duplicate check
-  - getAllSubjects()
-  - getSubjectsFor(deptId, year)
-
-lib/services/assignment_service.dart
-  - createAssignment(...) — duplicate check
-  - deleteAssignment(id)
-  - getAssignmentsForSection(sectionId)
-  - getAssignmentsForTeacher(teacherId)
-
-lib/services/student_import_service.dart
-  - parseAndValidate(file, section) → ImportResult
-      * Excel / CSV
-      * header aliases (name, fullName, rollNo, etc.)
-      * validates name / rollNo / enrollmentId
-      * detects duplicates in file + against DB
-  - executeImport(rows, section)
-      * batch insert + RPC increment
-
-lib/services/password_service.dart
-  - resetTeacherPassword(uid) → calls Edge Function
-    "reset-teacher-password", returns new password
-
-Screens:
-  login_screen                 → 6-digit ID + password
-  admin_dashboard_screen       → 3 cards: Departments, Subjects, Teachers
-  teacher_dashboard_screen     → list of assigned classes
-  teachers_list_screen         → Supabase stream + reset-password icon
-  add_teacher_screen           → form + credentials dialog
-  departments_list_screen      → list + YearsScreen navigation
-  add_department_screen        → form
-  years_screen                 → 1st–4th year static list
-  sections_list_screen         → list + Add Section FAB
-  add_section_screen           → form, previews generated ID
-  section_detail_screen        → assignments card + students card
-  add_student_screen           → form
-  import_students_screen       → file picker, preview, errors, import
-  subjects_list_screen         → list + Add Subject FAB
-  add_subject_screen           → form with dept/year dropdowns
-  assign_teacher_screen        → subject + teacher dropdowns
-
-.github/workflows/ci.yml
-  - Runs on push/PR to main
-  - Java 17 + Flutter stable
-  - flutter pub get → flutter analyze → flutter test
-
-test/widget_test.dart
-  - Placeholder test (keeps CI green)
-
-================================================================================
-SECTION 10 — CODE CHANGES: FIREBASE → SUPABASE
-================================================================================
-REMOVED from pubspec.yaml:
-  firebase_core, firebase_auth, cloud_firestore,
-  firebase_storage, cloud_functions
-
-ADDED to pubspec.yaml:
-  supabase_flutter: ^2.5.0
-
-DELETED files:
-  lib/firebase_options.dart
-  firebase.json
-  .firebaserc
-  functions/  (only in OLD folder)
-
-Field name changes (Firestore camelCase → Supabase snake_case):
+─── Field name changes (camelCase → snake_case) ───────────────────────────────
   fullName           → full_name
   rollNo             → roll_no
   enrollmentId       → enrollment_id
@@ -410,186 +634,925 @@ Field name changes (Firestore camelCase → Supabase snake_case):
   loginCode          → login_code
   hasChangedPassword → has_changed_password
 
-Key API swaps:
+─── API swaps ─────────────────────────────────────────────────────────────────
   FirebaseAuth.instance.signInWithEmailAndPassword(...)
     → supabase.auth.signInWithPassword(...)
+
   FirebaseFirestore.instance.collection('x').doc(id).get()
     → supabase.from('x').select().eq('id', id).maybeSingle()
+
   Firestore .add({...})
     → supabase.from('x').insert({...})
+
   Firestore .update({...})
     → supabase.from('x').update({...}).eq('id', id)
+
   Firestore realtime .snapshots()
     → supabase.from('x').stream(primaryKey: ['id'])
+
   Cloud Function httpsCallable(...)
     → supabase.functions.invoke('name', body: {...})
+
   User.uid
     → User.id
+
   Email TLD .local (rejected by Supabase)
     → .app
 
-================================================================================
-SECTION 11 — GIT WORKFLOW (PROFESSIONAL)
-================================================================================
+─── Packages removed ──────────────────────────────────────────────────────────
+  firebase_core, firebase_auth, cloud_firestore,
+  firebase_storage, cloud_functions
+
+─── Packages added ────────────────────────────────────────────────────────────
+  supabase_flutter, archive, image, file_saver, intl
+
+─── Files deleted ─────────────────────────────────────────────────────────────
+  lib/firebase_options.dart
+  firebase.json
+  .firebaserc
+  functions/ (kept only in BACKUP folder)
+
+
+################################################################################
+#                                                                              #
+#  SECTION 8 — COMPLETE ERROR LOG (E1 – E32)                                   #
+#                                                                              #
+################################################################################
+
+E1   flutterfire not recognized
+     FIX: added Pub cache bin to PATH
+
+E2   firebase not recognized
+     FIX: installed firebase-tools via npm
+
+E3   Unexpected end of JSON input
+     FIX: npm install -g firebase-tools (replaced broken instant binary)
+
+E4   Found 0 Firebase projects
+     FIX: firebase login
+
+E5   Firestore UI no test mode
+     FIX: manually set rules to allow all (temporary dev mode)
+
+E6   main.dart not found
+     FIX: created file, removed stray temp file
+
+E7   Building plugins requires symlink support
+     FIX: Windows Developer Mode → ON
+
+E8   Unable to find suitable Visual Studio toolchain
+     FIX: ran on Chrome instead (or install VS with C++ workload)
+
+E9   logout() method not defined
+     FIX: added logout() to AuthProvider
+
+E10  Logout didn't navigate back
+     FIX: pushAndRemoveUntil in both dashboards
+
+E11  Git init in wrong folder
+     FIX: deleted parent .git, re-init inside project
+
+E12  src refspec main doesn't match any
+     FIX: git branch -M main
+
+E13  Repository not found on push
+     FIX: created repo on GitHub, re-added remote
+
+E14  LF/CRLF warnings
+     FIX: harmless. Optionally add .gitattributes
+
+E15  avoid_print linter error
+     FIX: replaced print() with debugPrint()
+
+E16  CI hung on cache step
+     FIX: waited; cache upload eventually completed
+
+E17  Cannot checkout main with local changes
+     FIX: git restore <file> then git checkout -f main
+
+E18  Cannot delete branch while on it
+     FIX: git checkout main first, then git branch -D
+
+E19  Teacher login returns "invalid ID or password"
+     CAUSE: auth_service checked admins collection BEFORE teachers.
+            RLS for admins required isAdmin() — blocked teachers with
+            permission-denied, surfacing as "invalid login".
+     FIX: reversed order — check teachers collection first.
+     LESSON: Expose raw Firebase/Supabase errors during development.
+
+E20  Excel import rejected all rows
+     CAUSE: real enrollment IDs use forward slashes (NED/0234/2024),
+            regex only allowed hyphens.
+     FIX: updated regex to allow / in roll_no and enrollment_id.
+
+E21  Cloud Function returned generic "internal" error
+     CAUSE: not deployed — Cloud Functions require Blaze plan.
+     FIX: migrated to Supabase (see Section 7).
+
+E22  Appwrite migration crashed
+     CAUSE: tool failed on nested structures in Firestore data.
+     FIX: rejected Appwrite, chose Supabase.
+
+E23  Appwrite UI too laggy
+     FIX: switched evaluation to Supabase.
+
+E24  Admin logged in, landed on teacher portal
+     CAUSE: teacher row in DB had admin's UID.
+     FIX: deleted wrong row, re-inserted with correct UID.
+
+E25  Supabase rejects emails ending in .local
+     CAUSE: .local is a reserved TLD, strict validators reject it.
+     FIX: changed all auth emails to use @uniattend.app.
+
+E26  429 over_email_send_rate_limit
+     CAUSE: built-in email service limited to 2-4/hour.
+            signUp() triggers confirmation email by default.
+     FIX: disabled "Confirm email" in Auth → Providers → Email.
+
+E27  Signup succeeded but login failed "Invalid credentials"
+     CAUSE: email_confirmed_at was NULL despite Confirm email OFF.
+     FIX: added trg_auto_confirm_users trigger on auth.users that
+          auto-confirms every new signup.
+
+E28  Supabase "Failed to fetch" during login
+     CAUSE: Email provider toggle was OFF in Auth → Providers.
+     FIX: re-enabled + saved.
+
+E29  createTeacher PKCE assertion
+     CAUSE: secondary SupabaseClient needs asyncStorage for PKCE flow.
+     FIX: passed AuthClientOptions(authFlowType: AuthFlowType.implicit).
+
+E30  Teacher list realtime error
+     CAUSE: Realtime not enabled on teachers table.
+     FIX: ALTER PUBLICATION supabase_realtime ADD TABLE teachers;
+
+E31  Admin login redirected to teacher portal (again)
+     CAUSE: same as E24 — teacher row had admin UID.
+     FIX: same as E24.
+
+E32  attendance_sessions missing fields
+     CAUSE: schema drift between Firebase and Supabase.
+     FIX: added slot, start_time, end_time, slot_count, removed late_count.
+
+E33  intl package not a dependency
+     FIX: added intl: ^0.19.0 to pubspec.yaml.
+
+E34  file_saver 'fileExtension' parameter not defined
+     CAUSE: older stable API uses 'ext' instead of 'fileExtension'.
+     FIX: changed to ext: 'zip'.
+
+E35  ZipEncoder().encode() returns nullable List<int>
+     FIX: null-check the result, throw if null.
+
+E36  SectionAttendanceScreenState class name mismatch
+     CAUSE: class without leading underscore, createState() referenced
+            with underscore → "method not defined".
+     FIX: renamed class to _SectionAttendanceScreenState.
+
+E37  Subject/teacher assignment duplicates
+     CAUSE: previous rule allowed same teacher to teach different subjects
+            to same section, but ALSO allowed two teachers for same subject
+            in same section.
+     FIX: changed duplicate check to (subject_id, section_id) only.
+          One teacher per subject per section.
+
+E38  Supabase URL typo ("zapikewunga" vs "zapikewunga")
+     CAUSE: manual entry typo.
+     FIX: copy-paste URL from Settings → API.
+
+
+################################################################################
+#                                                                              #
+#  SECTION 9 — GIT WORKFLOW (PROFESSIONAL)                                     #
+#                                                                              #
+################################################################################
+
 GOLDEN RULE: Never commit directly to main. Feature branches + PRs.
 
---- START A NEW FEATURE ---
+─── Start a new feature ───────────────────────────────────────────────────────
   git checkout main
   git pull origin main
   git checkout -b feature/short-description
 
---- BEFORE COMMITTING ---
+─── Before committing ─────────────────────────────────────────────────────────
   flutter analyze
   flutter test
 
---- COMMIT + PUSH ---
+─── Commit + push ─────────────────────────────────────────────────────────────
   git add .
   git commit -m "feat: description"
   git push -u origin feature/short-description
 
---- ON GITHUB ---
-  → "Compare & pull request" → title + description
-  → Create PR → wait for CI ✅ → Merge → Delete branch
+─── On GitHub ─────────────────────────────────────────────────────────────────
+  Click "Compare & pull request" → fill title + description →
+  Create PR → wait for CI ✅ → Merge → Delete branch
 
---- SYNC LOCAL ---
+─── Sync local ────────────────────────────────────────────────────────────────
   git checkout main
   git pull origin main
   git branch -D feature/short-description
 
---- RECOVERY COMMANDS ---
-  git restore <file>              discard local changes
+─── Recovery commands ─────────────────────────────────────────────────────────
+  git restore <file>              discard changes
   git checkout -f main            force switch
   git reset --soft HEAD~1         undo last commit, keep changes
-  git branch -D branch-name       force delete branch
-  git remote remove origin        remove broken remote
-  git remote add origin <URL>     add new remote
+  git branch -D <branch>          force delete
+  git remote remove origin        fix broken remote
+  git remote add origin <URL>
 
---- COMMIT TYPES ---
-  feat / fix / chore / docs / refactor / style / test
+─── Commit types ──────────────────────────────────────────────────────────────
+  feat      new feature
+  fix       bug fix
+  chore     maintenance
+  docs      documentation
+  refactor  cleanup without behavior change
+  style     formatting
+  test      tests
 
---- POWERSHELL SPECIFIC ---
-  Remove-Item -Recurse -Force <folder>   (cmd: rmdir /s /q <folder>)
+─── PowerShell tips ───────────────────────────────────────────────────────────
+  Remove-Item -Recurse -Force <folder>
   Get-ChildItem -Recurse -Filter *.dart lib | Select-String "pattern"
 
-================================================================================
-SECTION 12 — ERRORS FACED & FIXES (FULL HISTORY)
-================================================================================
-E1   flutterfire not recognized         → added Pub cache bin to PATH
-E2   firebase not recognized            → installed firebase-tools via npm
-E3   Unexpected end of JSON input       → npm install -g firebase-tools
-E4   Found 0 Firebase projects          → firebase login
-E5   Firestore UI no test mode          → manually set rules to allow all
-E6   main.dart not found                → created file, removed temp
-E7   Building plugins needs symlink     → Windows Developer Mode ON
-E8   VS toolchain missing               → ran on Chrome instead
-E9   logout() not defined               → added method to AuthProvider
-E10  Logout didn't navigate             → pushAndRemoveUntil
-E11  Git init in wrong folder           → deleted parent .git, re-init
-E12  src refspec main doesn't match     → git branch -M main
-E13  Repository not found               → created repo, re-added remote
-E14  LF/CRLF warnings                   → harmless, add .gitattributes
-E15  avoid_print linter                 → replaced with debugPrint
-E16  CI hung on cache step              → waited, completed
-E17  Cannot checkout main w/ changes    → git restore + checkout -f
-E18  Cannot delete current branch       → checkout main first, use -D
-E19  Teacher login "invalid"            → was checking admins coll first;
-                                          reversed: check teachers first
-E20  Excel rejected all rows            → enrollment IDs use slashes, not
-                                          hyphens. Updated regex to allow /
-E21  Cloud Function internal error      → not deployed. Blaze required.
-                                          → MIGRATED TO SUPABASE
-E22  Appwrite migration failed          → tool crashed on nested structures
-E23  Appwrite UI laggy                  → rejected, chose Supabase
-E24  Admin login landed on teacher page → teacher row had admin's UID;
-                                          deleted + re-inserted with
-                                          correct UID
-E25  Supabase rejects .local emails     → .local is reserved TLD; changed
-                                          all auth emails to @uniattend.app
-E26  429 over_email_send_rate_limit     → built-in email service limits
-                                          2-4/hour; disabled "Confirm email"
-                                          in Auth → Providers → Email
-E27  Signup succeeded but login failed  → email_confirmed_at NULL despite
-     "Invalid credentials"                Confirm email OFF; added
-                                          trg_auto_confirm_users trigger
-E28  Supabase "Failed to fetch" login   → email provider toggle was off;
-                                          re-enabled + saved
-E29  createTeacher PKCE assertion       → secondary client needs
-                                          AuthFlowType.implicit
-E30  Teacher list realtime error        → Realtime not enabled on table;
-                                          alter publication supabase_realtime
-                                          add table teachers;
-E31  Admin login page for teacher UID   → teacher row had wrong UID (fixed)
-E32  attendance_sessions missing fields → added slot, start_time, end_time
-                                          to schema
 
-================================================================================
-SECTION 13 — CURRENT STATUS
-================================================================================
+################################################################################
+#                                                                              #
+#  SECTION 10 — CURRENT STATUS (as of last update)                             #
+#                                                                              #
+################################################################################
+
 DONE ✅
-  - Firebase version fully working (kept as backup)
-  - Supabase project created (Singapore)
-  - 9 tables + RLS + policies
-  - RPCs: increment_section_students, mark_attendance
-  - Trigger: trg_auto_confirm_users
-  - Edge Function: reset-teacher-password
-  - Login (teacher + admin) works
-  - Role-based routing
-  - Admin can create teacher accounts (auto ID + password)
-  - Admin can reset teacher passwords
-  - Departments: list + add
-  - Teachers: list + add + reset password
-  - Admin home: 3 cards (Departments, Subjects, Teachers)
-  - Years screen (1-4 inside each department)
-  - Sections: list + add (auto IDs like CS-3A)
-  - Section detail: assignments + students
-  - Add student form
-  - Excel/CSV import (atomic, with validation + preview)
-  - Subjects: list + add (dept-specific)
-  - Teaching assignments: (teacher, subject, section) with duplicate check
-  - Teacher dashboard: shows assigned classes
-  - All Firebase references removed from lib/
-  - New GitHub repo: supabase-attendance-system
-  - CI workflow: passing
-  - flutter analyze: No issues
-  - Login form: eye icon, no autocorrect
-  - Detailed error messages surfaced to user
-  - Attendance marking with subject-aware sessions
-  - Subject summary: slots conducted / max, per-student attended + %
-  - Credit-hour cap enforced (credit_hours × 15 slots max)
-  - One class per subject per section per day
-  - Slot count support (1 or 2 combined slots)
-  - Removed "late" status
+  Foundation
+    • Firebase version fully working (kept as backup)
+    • Supabase project created (Singapore region)
+    • 9 tables + RLS + policies
+    • Trigger: trg_auto_confirm_users
+    • Edge Function: reset-teacher-password
+    • CI workflow on GitHub Actions
+
+  Auth
+    • Login (teacher + admin) works with detailed error reporting
+    • Role-based routing
+    • Admin can create teacher accounts (auto ID + password)
+    • Admin can reset teacher passwords
+    • Login form: eye icon, no autocorrect
+
+  Admin features
+    • Departments: list + add + export
+    • Subjects: list + add (dept-specific)
+    • Teachers: list + add + reset password
+    • Years view (1–4 inside each department)
+    • Sections: list + add + export
+    • Section detail: assignments + attendance link + students
+    • Assign teacher to (subject, section) — one teacher per subject
+    • Excel/CSV student import (atomic with preview)
+    • Attendance viewing: section → subject → sessions → detail
+    • Per-student attendance breakdown across subjects
+    • Export: ZIP of Excel (Summary + 1 sheet per subject) + PNG
+
+  Teacher features
+    • View assigned classes
+    • Mark attendance (1 or 2 slots, present/absent)
+    • Date locked to today
+    • Credit-hour cap enforced (credit_hours × 15)
+    • One class per subject per section per day
+    • View per-student attendance % with color coding
 
 NOT YET BUILT ❌
-  - Attendance marking code (models + services + screens)
-    → Tables + RPC already deployed, only Dart code left
-  - Attendance history view (for teachers + admin)
-  - Excel export of attendance
-  - Change-password on first login (teacher must change temp password)
-  - Student detail / edit / soft delete
-  - Move Subjects card inside Departments (dept-specific grouping)
-  - Backup strategy documentation
-  - Keep-alive ping to prevent Supabase auto-pause
-  - Deployment to Play Store
+  Security (see Section 12 for full roadmap)
+    • Change password on first login
+    • Session timeouts
+    • Rate limiting on login
+    • Audit logging
+    • 2FA for admins
+    • Input sanitization
+    • Tightened RLS policies
+    • HTTPS enforcement
+    • Certificate pinning for mobile
 
-================================================================================
-SECTION 14 — NEXT UP
-================================================================================
-NEXT FEATURE: Admin-side attendance viewing
-  Branch: feature/admin-attendance-view
-  What to build:
-    - Admin can view attendance per section
-    - Admin can view attendance per subject
-    - Summary across all sections of a department
-    - Per-student attendance drill-down
-    - Later: Excel export
+  Functionality
+    • Admin dashboard analytics
+    • Edit / soft-delete everywhere
+    • Teacher full session history list
+    • Edit / cancel a session
+    • Move Subjects card inside Departments
+    • Attendance alerts (below 75% badge)
+    • PDF report format
 
-AFTER THAT:
-  - Attendance history screen
-  - Excel export of attendance
-  - Change-password flow (first login)
-  - Supabase keep-alive ping
+  Operations
+    • Supabase keep-alive cron
+    • Backup strategy
+    • Environment config (dev/prod split)
+    • Real test suite
 
-================================================================================
-END OF LOG
-================================================================================
+  Deployment
+    • Play Store: signing key, applicationId, listing
+    • Privacy policy + terms
+    • Production SMTP
+
+
+################################################################################
+#                                                                              #
+#  SECTION 11 — FUNCTIONAL ROADMAP (NEXT FEATURES)                             #
+#                                                                              #
+################################################################################
+
+PRIORITY 1 — Critical UX & data integrity
+─────────────────────────────────────────
+  [ ] Change Password on First Login
+      Branch : feature/change-password-flow
+      Files  : lib/screens/change_password_screen.dart
+      Logic  : After login, if teacher.has_changed_password == false,
+               redirect to ChangePasswordScreen before dashboard.
+               On successful change → supabase.auth.updateUser({password})
+                                       + UPDATE teachers SET
+                                         has_changed_password = true
+
+  [ ] Edit / Soft-Delete Everywhere
+      Branch : feature/crud-edit-delete
+      Files  : *_edit_screen.dart for each entity
+      Logic  : Add edit icons + soft-delete (is_active = false)
+               Never hard-delete — preserve history.
+
+  [ ] Admin Dashboard Analytics
+      Branch : feature/admin-analytics
+      Shows  : total students / teachers / sections
+               today's attendance % across university
+               students below 75% flagged red
+
+PRIORITY 2 — Missing functionality
+──────────────────────────────────
+  [ ] Move Subjects Card Inside Departments
+  [ ] Teacher Full Session History List
+  [ ] Edit / Cancel a Session (with reason)
+  [ ] Attendance Alerts (below 75% badge)
+  [ ] PDF Report Format (in addition to Excel + PNG)
+  [ ] Department-wise Attendance Overview
+
+PRIORITY 3 — Polish
+────────────────────
+  [ ] Custom App Icon + Splash Screen
+  [ ] Friendly Error Messages (replace raw exception strings)
+  [ ] Offline / Connection Handling
+  [ ] Loading Skeletons (shimmer)
+  [ ] Dark Mode Support
+  [ ] Localization (English + Urdu)
+
+PRIORITY 4 — Operations
+───────────────────────
+  [ ] Supabase Keep-Alive Cron (GitHub Actions)
+  [ ] Backup Strategy (monthly pg_dump → Google Drive)
+  [ ] Dev / Prod Environment Split
+  [ ] Real Test Suite (login, attendance, export)
+
+
+################################################################################
+#                                                                              #
+#  SECTION 12 — SECURITY ROADMAP (DETAILED)                                    #
+#                                                                              #
+################################################################################
+
+This section is a detailed plan for making UniAttend production-grade secure.
+Each item includes: why it matters, how to implement, and where to add code.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.1 — SESSION MANAGEMENT
+────────────────────────────────────────────────────────────────────────────────
+
+  [S1] Session Timeout (Idle)
+    Why   : If a teacher leaves their phone unattended, an attacker could
+            mark bogus attendance.
+    How   :
+      1. Add lib/core/session_manager.dart
+      2. Track last user activity via a global WidgetsBindingObserver
+      3. On app resume / foreground, compare now vs lastActivity
+      4. If > N minutes (configurable, e.g., 15 min for teachers,
+         5 min for admins), force logout + redirect to login
+      5. Reset timer on any user interaction (tap, keyboard)
+    Code outline:
+      class SessionManager {
+        static const idleTimeoutTeacher = Duration(minutes: 15);
+        static const idleTimeoutAdmin   = Duration(minutes: 5);
+        DateTime _lastActivity = DateTime.now();
+        void touch() => _lastActivity = DateTime.now();
+        Future<bool> checkTimeout(String role) async {
+          final limit = role == 'admin' ? idleTimeoutAdmin : idleTimeoutTeacher;
+          if (DateTime.now().difference(_lastActivity) > limit) {
+            await Supabase.instance.client.auth.signOut();
+            return true; // timed out
+          }
+          return false;
+        }
+      }
+      Wrap the app in a GestureDetector + Listener to call touch() on
+      any user interaction.
+
+  [S2] Absolute Session Timeout
+    Why   : Even with activity, sessions shouldn't last forever.
+    How   : Store login timestamp. Force re-auth after 12 hours (teachers)
+            or 4 hours (admins), regardless of activity.
+
+  [S3] Concurrent Session Limit
+    Why   : Prevent account sharing (one teacher login used by 5 people).
+    How   : Store active session IDs in a sessions table; on new login,
+            either kick the old session or reject new login if > 2 active.
+    Note  : Requires Edge Function for session tracking (Supabase Auth
+            does not support this natively on free tier).
+
+  [S4] Session Invalidation on Password Change
+    Why   : If admin resets a teacher's password, all existing sessions
+            must be terminated.
+    How   : Supabase Auth auto-invalidates all sessions when
+            updateUser({password}) is called via Admin API (already
+            happens in reset-teacher-password Edge Function).
+            Just add a UI notice telling the user they'll be logged out.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.2 — AUTHENTICATION HARDENING
+────────────────────────────────────────────────────────────────────────────────
+
+  [A1] Brute Force Protection on Login
+    Why   : Currently, an attacker can try infinite passwords.
+    How   :
+      1. Create table: login_attempts (id, login_code, ip, attempted_at)
+      2. Before login, call an RPC `check_login_attempts(login_code)`:
+         - Count attempts in last 15 min
+         - If > 5 → reject with "Too many attempts. Try again in 15 min."
+      3. After failed login, call RPC `record_login_attempt(login_code)`
+      4. Successful login → RPC `clear_login_attempts(login_code)`
+    Code outline (SQL):
+      CREATE TABLE login_attempts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        login_code text NOT NULL,
+        attempted_at timestamptz DEFAULT now()
+      );
+      CREATE INDEX idx_login_attempts ON login_attempts(login_code, attempted_at);
+
+  [A2] Password Strength Requirements
+    Why   : Currently server-generated passwords are fine, but teachers
+            change them later. Weak passwords = weak security.
+    How   : In ChangePasswordScreen, validate:
+      - Minimum 10 characters
+      - At least 1 uppercase, 1 lowercase, 1 digit, 1 symbol
+      - Not in a common-password dictionary (HIBP API on Pro plan;
+        on free tier, bundle a small list of top-1000 passwords)
+
+  [A3] Two-Factor Authentication for Admins
+    Why   : Admin accounts are highest-value targets — one compromised
+            admin can delete everything.
+    How   : Supabase supports MFA (TOTP) natively.
+      - In admin login, after email/password success, check if MFA is
+        enrolled
+      - If not, prompt enrollment: show QR code (use qr_flutter)
+      - If enrolled, prompt TOTP code
+      - Use supabase.auth.mfa.challenge() + verify()
+    Note  : MFA is available on Free tier.
+
+  [A4] Password Reset via Email (Real)
+    Why   : Currently only admin can reset teacher passwords.
+            Self-service is expected.
+    How   : Set up Resend / Brevo (free tier: 3000 / 300 emails per day)
+      - Supabase Dashboard → Auth → SMTP Settings
+      - Enable "Reset password" email template
+      - Add "Forgot Password?" link on login screen
+      - Call supabase.auth.resetPasswordForEmail(email)
+
+  [A5] Login Audit Trail
+    Why   : Know when each account was last used, from where.
+    How   : Add table login_audit (id, user_id, ip, user_agent, at, success)
+            Populate via Edge Function that wraps login flow.
+            Show last 5 logins on teacher/admin profile screen.
+
+  [A6] Account Lockout After N Failed Attempts
+    Why   : Stronger than rate limit — locks account entirely.
+    How   : Add column teachers.locked_until timestamptz
+            If failed attempts > 10 in last hour → locked_until = now()+1h
+            Login checks locked_until, denies if locked.
+            Admin can manually unlock from teachers list.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.3 — DATA SECURITY (RLS TIGHTENING)
+────────────────────────────────────────────────────────────────────────────────
+
+  [D1] Restrict Writes by Role
+    Why   : Right now every authenticated user can write to every table.
+            A malicious teacher could delete all students via API.
+    How   : Replace current policies with role-aware ones.
+    Plan  :
+      ┌────────────────────────┬──────────┬──────────┬──────────┐
+      │ Table                  │ SELECT   │ INSERT   │ UPDATE   │
+      ├────────────────────────┼──────────┼──────────┼──────────┤
+      │ departments            │ all auth │ admin    │ admin    │
+      │ sections               │ all auth │ admin    │ admin    │
+      │ students               │ all auth │ admin    │ admin    │
+      │ teachers               │ all auth │ admin    │ admin    │
+      │ admins                 │ self     │ admin    │ admin    │
+      │ subjects               │ all auth │ admin    │ admin    │
+      │ teaching_assignments   │ all auth │ admin    │ admin    │
+      │ attendance_sessions    │ all auth │ teacher* │ teacher* │
+      │ attendance_records     │ all auth │ teacher* │ teacher* │
+      └────────────────────────┴──────────┴──────────┴──────────┘
+      * teacher writes only allowed if session.teacher_id = auth.uid()
+    Sample SQL:
+      CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$
+        SELECT EXISTS(SELECT 1 FROM admins WHERE id = auth.uid());
+      $$ LANGUAGE sql SECURITY DEFINER;
+
+      DROP POLICY IF EXISTS auth_write ON departments;
+      CREATE POLICY admin_write ON departments FOR ALL
+        USING (is_admin()) WITH CHECK (is_admin());
+
+      DROP POLICY IF EXISTS auth_write ON attendance_sessions;
+      CREATE POLICY teacher_insert_sessions ON attendance_sessions
+        FOR INSERT TO authenticated
+        WITH CHECK (teacher_id = auth.uid()::text);
+
+  [D2] Column-Level Redaction
+    Why   : Teachers shouldn't see other teachers' contact emails.
+    How   : Use Postgres views:
+      CREATE VIEW teachers_public AS
+        SELECT id, full_name, login_code, role, is_active FROM teachers;
+      Grant SELECT on teachers_public to authenticated; revoke on teachers.
+
+  [D3] Row-Level Filtering by Ownership
+    Why   : Teachers should only see their own assignments' attendance.
+    How   : Attendance RLS policy:
+      FOR SELECT USING (
+        is_admin() OR
+        teacher_id = auth.uid()::text
+      )
+
+  [D4] Prevent Mass Assignment
+    Why   : Client could send role='admin' in insert to elevate privileges.
+    How   : Add CHECK constraints:
+      ALTER TABLE teachers ADD CONSTRAINT role_check
+        CHECK (role IN ('teacher')); -- no 'admin' allowed here
+      ALTER TABLE admins ADD CONSTRAINT admin_role_check
+        CHECK (role = 'admin');
+
+  [D5] Data Integrity Constraints
+    Why   : Prevent invalid data at DB level, not just app level.
+    How   : Already have some. Add more:
+      - CHECK (year BETWEEN 1 AND 4) on sections
+      - CHECK (credit_hours BETWEEN 1 AND 6) on subjects
+      - CHECK (slot_count IN (1, 2)) on attendance_sessions
+      - CHECK (status IN ('present', 'absent', 'excused')) on records
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.4 — INPUT VALIDATION & INJECTION PREVENTION
+────────────────────────────────────────────────────────────────────────────────
+
+  [I1] SQL Injection
+    Status: Supabase uses parameterized queries via the SDK.
+            Direct SQL injection is NOT possible through .from().select()
+            or .eq() calls. RPC functions also use parameters.
+    Risk  : LOW — but ensure no dynamic SQL inside RPC functions.
+    Action: Audit every RPC. Confirm no `EXECUTE format(...)` with
+            user-controlled strings.
+
+  [I2] NoSQL Injection
+    N/A — Postgres, not MongoDB.
+
+  [I3] XSS (Cross-Site Scripting)
+    Context: Flutter Web renders to canvas, not HTML — XSS surface is
+             tiny. But text still flows through Text widgets.
+    Risk  : LOW. Flutter escapes by default.
+    Action: Never use HtmlElementView with user content.
+            Sanitize any text shown in tooltips / semantics.
+
+  [I4] Server-Side Input Validation
+    Why   : Client validation can be bypassed.
+    How   : Add CHECK constraints + Edge Function validation.
+            Example: mark_attendance RPC already validates date format,
+            slot, slot_count. Extend as needed.
+
+  [I5] File Upload Validation
+    Why   : Excel import accepts files — could be exploited.
+    How   : Already validate:
+      - File extension whitelist (.xlsx, .xls, .csv)
+      - Row count max 500
+      - Field length limits
+      - Regex patterns
+    Add  :
+      - File size limit (reject > 5 MB)
+      - MIME type check via file_picker
+
+  [I6] Rate Limiting on RPC / API
+    Why   : Prevent abuse (mark 1000 sessions in 1 minute).
+    How   : Add Edge Function wrapper or use Cloudflare in front.
+            Simple approach: table api_calls (user_id, endpoint, at)
+            RPC checks count in last minute < threshold.
+
+  [I7] Reject Duplicate Requests (Idempotency)
+    Why   : Network retries could cause double submission.
+    How   : Client generates a UUID per action → sends as request_id.
+            Server table idempotency_keys(request_id unique, result jsonb).
+            If exists → return cached result.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.5 — TRANSPORT SECURITY
+────────────────────────────────────────────────────────────────────────────────
+
+  [T1] HTTPS Everywhere
+    Status: Supabase enforces HTTPS. Flutter Web enforces HTTPS.
+    Action: Ensure deployment is HTTPS (Firebase Hosting / Netlify / Vercel).
+
+  [T2] Certificate Pinning (Mobile)
+    Why   : MITM attack prevention on public Wi-Fi.
+    How   : Add to pubspec: http_certificate_pinning
+            Pin Supabase's cert in AppDelegate / MainActivity.
+    Note  : Requires knowing the cert — Supabase uses Let's Encrypt;
+            pinning root CA is acceptable alternative.
+
+  [T3] CSP Headers (Web)
+    Why   : Restrict which domains can load resources.
+    How   : Add in index.html:
+      <meta http-equiv="Content-Security-Policy"
+            content="default-src 'self'; connect-src 'self' *.supabase.co;
+                     script-src 'self'; style-src 'self' 'unsafe-inline';">
+
+  [T4] HSTS Header (Web)
+    How   : Configure on hosting provider (Firebase Hosting / Vercel).
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.6 — CLIENT-SIDE SECURITY
+────────────────────────────────────────────────────────────────────────────────
+
+  [C1] Secure Storage for Session Tokens
+    Status: supabase_flutter uses flutter_secure_storage on mobile.
+            On Web, uses localStorage (server-side protections required).
+    Action: For mobile, confirm secure storage is enabled (default).
+            For Web, ensure short session lifetimes + frequent re-auth.
+
+  [C2] Biometric Auth on Mobile
+    Why   : Extra layer — even with stolen phone, no access.
+    How   : Add local_auth package.
+            On login screen, offer "Unlock with fingerprint".
+            Store a local flag after first successful login;
+            subsequent launches require biometric before showing dashboard.
+
+  [C3] Screenshot Prevention (Android)
+    Why   : Teachers' student lists shouldn't be captured by malware.
+    How   : Add flag in MainActivity:
+            getWindow().setFlags(FLAG_SECURE, FLAG_SECURE);
+            Only on admin screens where PII is displayed.
+
+  [C4] Root / Jailbreak Detection
+    Why   : Rooted devices can bypass many security controls.
+    How   : Add flutter_jailbreak_detection package.
+            On app start, if rooted → warn user or refuse to run.
+    Note  : Can be bypassed — it's a deterrent, not a wall.
+
+  [C5] Anti-Tampering
+    Why   : Prevent re-signed APKs with injected malicious code.
+    How   : Play Integrity API (Android) + App Attest (iOS).
+            Requires Edge Function to verify the attestation token.
+
+  [C6] Code Obfuscation on Release
+    How   : flutter build apk --obfuscate --split-debug-info=./debug-info
+            Makes reverse engineering much harder.
+
+  [C7] Debug Mode Disabled in Release
+    Status: Automatically done by Flutter (kReleaseMode = true).
+            Ensure no assert() checks rely on debug-only code paths.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.7 — LOGGING & MONITORING
+────────────────────────────────────────────────────────────────────────────────
+
+  [L1] Audit Log Table
+    Why   : Know who did what, when.
+    How   : Create table audit_logs (
+              id uuid PK,
+              actor_id text,
+              actor_role text,
+              action text,               -- 'login', 'mark_attendance', etc.
+              target_type text,
+              target_id text,
+              metadata jsonb,
+              ip text,
+              created_at timestamptz DEFAULT now()
+            )
+            Populate via triggers on critical tables OR via Edge Function.
+            Example actions to log:
+              - login_success / login_failure
+              - password_reset (by admin)
+              - teacher_created / teacher_deleted
+              - attendance_marked
+              - attendance_edited / cancelled
+              - export_generated
+            Admin dashboard shows recent audit entries.
+
+  [L2] Error Tracking
+    How   : Add sentry_flutter (free tier: 5K events/month).
+            Report all uncaught exceptions with stack traces.
+            Add user context (role, user_id) — NEVER passwords.
+
+  [L3] Performance Monitoring
+    How   : Sentry Performance or Firebase Performance (free).
+            Track: login duration, attendance submission time,
+                   export generation time.
+
+  [L4] Failed Login Alerting
+    How   : If > 20 failed logins in 1 hour → email admin.
+            Implement via Edge Function + email API.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.8 — OPERATIONAL SECURITY
+────────────────────────────────────────────────────────────────────────────────
+
+  [O1] Environment Variable Management
+    Status: Supabase URL + anon key are committed (safe — public by design).
+    Action: Move to a config that can be swapped for staging/prod:
+      - Use --dart-define at build time:
+        flutter build web --dart-define=SUPABASE_URL=... \
+                          --dart-define=SUPABASE_ANON_KEY=...
+      - Read via String.fromEnvironment('SUPABASE_URL')
+
+  [O2] Secret Rotation Plan
+    Document : If anon key is leaked (unlikely to matter, but):
+      - Rotate in Supabase Dashboard
+      - Deploy new build
+      - Old key becomes invalid immediately
+
+  [O3] Service Role Key Protection
+    Rule : service_role key has FULL DB access. Never in client code.
+           Only used by Edge Functions (env vars) and local scripts.
+    Check: grep -r "service_role" lib/ → should be empty.
+
+  [O4] Dependency Scanning
+    How  : Enable GitHub Dependabot (Security tab → Enable).
+           Weekly PRs for vulnerable packages.
+
+  [O5] CI Security Checks
+    How  : Add to .github/workflows/ci.yml:
+      - flutter analyze (already)
+      - flutter test (already)
+      - trivy fs . (vulnerability scan of dependencies)
+      - gitleaks detect --no-git (scan for accidentally committed secrets)
+
+  [O6] Backup Encryption
+    How  : Encrypt pg_dump output with GPG before uploading to Drive.
+           Key stored in password manager.
+
+────────────────────────────────────────────────────────────────────────────────
+ 12.9 — IMPLEMENTATION PRIORITY (Security)
+────────────────────────────────────────────────────────────────────────────────
+
+  Week 1 (Critical — do before any demo)
+    [x] Tighten RLS (D1, D3, D4)
+    [ ] Session timeout (S1)
+    [ ] Brute force protection (A1)
+    [ ] Audit log table + basic triggers (L1)
+    [ ] Remove debug prints from release builds (verify)
+
+  Week 2 (Hardening)
+    [ ] Change password on first login (already in roadmap)
+    [ ] Password strength (A2)
+    [ ] 2FA for admins (A3)
+    [ ] Certificate pinning for mobile (T2)
+    [ ] CSP headers for web (T3)
+
+  Week 3 (Monitoring & polish)
+    [ ] Sentry integration (L2)
+    [ ] Failed login alerting (L4)
+    [ ] Biometric auth on mobile (C2)
+    [ ] Code obfuscation on release (C6)
+
+  Week 4 (Advanced)
+    [ ] Concurrent session limit (S3)
+    [ ] Idempotency keys (I7)
+    [ ] Anti-tampering (C5)
+    [ ] Real password reset via email (A4)
+
+  Ongoing
+    [ ] Dependabot (O4)
+    [ ] CI security checks (O5)
+    [ ] Monthly backup with encryption (O6)
+
+
+################################################################################
+#                                                                              #
+#  SECTION 13 — DEPLOYMENT PLAN                                                #
+#                                                                              #
+################################################################################
+
+─── Phase 1: Internal testing (now) ───────────────────────────────────────────
+  • Run on Chrome + Windows desktop
+  • Test accounts: admin 999999, teacher 123456
+  • Verify all flows end-to-end
+
+─── Phase 2: Closed beta with friends ─────────────────────────────────────────
+  • Generate a signed APK: flutter build apk --release --split-per-abi
+  • Share APK directly (WhatsApp, Google Drive)
+  • Collect feedback for 1 week
+  • No Play Store yet — avoid the $25 + review process
+
+─── Phase 3: Play Store submission ────────────────────────────────────────────
+  Pre-requisites:
+    [ ] Change applicationId from com.example.* to a real one
+        e.g., com.adnankhaliq.uniattend
+    [ ] Generate signing key (keytool -genkey ...)
+    [ ] Create store listing:
+        - Screenshots (min 2, recommended 6)
+        - Feature graphic (1024x500)
+        - Short description (80 chars)
+        - Full description (4000 chars)
+    [ ] Privacy policy URL (required — host on GitHub Pages)
+    [ ] Content rating questionnaire
+    [ ] Pay $25 one-time registration
+    [ ] Upload signed AAB: flutter build appbundle --release
+
+  Timeline: 3–7 days for review.
+
+─── Phase 4: University deployment ────────────────────────────────────────────
+  • Deploy web version to Firebase Hosting / Vercel (free)
+  • University IT dept whitelists the domain
+  • Train CRs and teachers on usage
+  • Monitor Supabase usage dashboard weekly
+  • Monthly backup via pg_dump → encrypted → Google Drive
+
+─── Backend scaling ───────────────────────────────────────────────────────────
+  Free tier suits 1200 students + 120 teachers easily. Upgrade path:
+  Free → Pro ($25/month) if bandwidth exceeds 10 GB/month.
+  Expected: never within university timeframe (see Section 2 estimates).
+
+
+################################################################################
+#                                                                              #
+#  SECTION 14 — APPENDICES                                                     #
+#                                                                              #
+################################################################################
+
+A. Test credentials (current Supabase)
+   Admin  : 999999 / admin1234
+   Teacher: 123456 / test1234
+
+B. Supabase dashboard
+   https://supabase.com/dashboard/project/zapikewungaqlstvnocj
+
+C. GitHub repos
+   Active : https://github.com/adnanKHALIQxc/supabase-attendance-system
+   Backup : https://github.com/adnanKHALIQxc/university-attendance-system
+
+D. Key packages (pubspec.yaml)
+   supabase_flutter: ^2.5.0
+   provider:         ^6.1.2
+   file_picker:      ^8.1.2
+   csv:              ^6.0.0
+   excel:            ^4.0.6
+   archive:          ^3.6.1
+   image:            ^4.2.0
+   file_saver:       ^0.2.14
+   intl:             ^0.19.0
+   cupertino_icons:  ^1.0.8
+
+E. Useful queries (SQL Editor)
+   -- Count students per section
+   SELECT section_id, COUNT(*) FROM students
+     WHERE is_active = true GROUP BY section_id;
+
+   -- Attendance % for a student
+   SELECT s.full_name,
+          COUNT(*) FILTER (WHERE r.status = 'present') AS present,
+          COUNT(*) AS total
+   FROM students s
+   JOIN attendance_records r ON r.student_id = s.id
+   WHERE s.id = '<uuid>'
+   GROUP BY s.full_name;
+
+   -- Sessions held today
+   SELECT * FROM attendance_sessions
+     WHERE date = CURRENT_DATE ORDER BY created_at DESC;
+
+F. External references
+   Supabase docs   : https://supabase.com/docs
+   Flutter docs    : https://docs.flutter.dev
+   RLS guide       : https://supabase.com/docs/guides/auth/row-level-security
+   Edge Functions  : https://supabase.com/docs/guides/functions
+
+G. Glossary
+   RLS         Row Level Security — Postgres feature for row-level access
+   RPC         Remote Procedure Call — a Postgres function called from client
+   Edge Fn     Supabase's serverless functions (Deno runtime)
+   Denorm      Denormalized field — duplicated for read performance
+   anon key    Supabase public key — safe to expose, RLS protects data
+   service key Supabase admin key — MUST stay server-side only
+   JWT         JSON Web Token — used for session auth
+   BOM         Byte Order Mark — invisible UTF-8 prefix; stripped in CSV parsing
+   CRLF / LF   Windows vs Unix line endings
+   PKCE        Proof Key for Code Exchange — auth flow needing storage
+   TOTP        Time-based One-Time Password — used in 2FA
+   CSP         Content Security Policy — browser-level XSS prevention
+   HSTS        HTTP Strict Transport Security — forces HTTPS
+   MITM        Man-in-the-Middle attack — prevented by cert pinning
+   HIBP        Have I Been Pwned — password breach database
+
+
+################################################################################
+#                                                                              #
+#                          END OF MASTER REPORT                                #
+#                                                                              #
+#              To resume work: paste this file into a new conversation         #
+#              and start with "Continue from Section 11 / 12."                 #
+#                                                                              #
+################################################################################
