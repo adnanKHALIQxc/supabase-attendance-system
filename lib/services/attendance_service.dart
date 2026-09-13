@@ -2,13 +2,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/attendance_record.dart';
 import '../models/attendance_session.dart';
+import '../models/attendance_summary.dart';
 
 class AttendanceService {
   final SupabaseClient _client = Supabase.instance.client;
 
   /// Marks attendance via the `mark_attendance` RPC.
-  /// Inserts one session row + all records atomically.
-  /// Throws if a session for (subject, section, date, slot) already exists.
+  /// One session per (subject, section, day). Subject credit-hour cap enforced.
   Future<String> markAttendance({
     required String subjectId,
     required String subjectName,
@@ -17,6 +17,7 @@ class AttendanceService {
     required String teacherName,
     required DateTime date,
     required String slot,
+    required int slotCount,
     required String startTime,
     required String endTime,
     required List<
@@ -47,6 +48,7 @@ class AttendanceService {
       'p_teacher_name': teacherName,
       'p_date': dateStr,
       'p_slot': slot,
+      'p_slot_count': slotCount,
       'p_start_time': startTime,
       'p_end_time': endTime,
       'p_records': jsonRecords,
@@ -55,39 +57,86 @@ class AttendanceService {
     return result as String;
   }
 
-  Future<List<AttendanceSession>> getSessionsForSection(
-    String sectionId,
-  ) async {
+  /// Returns the summary: total slots conducted + per-student attendance.
+  Future<AttendanceSummary> getSummary({
+    required String subjectId,
+    required String sectionId,
+  }) async {
+    final res = await _client.rpc('get_attendance_summary', params: {
+      'p_subject_id': subjectId,
+      'p_section_id': sectionId,
+    });
+    return AttendanceSummary.fromSupabase(res);
+  }
+
+  /// Whether the teacher can still mark attendance today for this class.
+  /// Checks: today already marked? credit-hour cap reached?
+  Future<({bool canMark, String? reason})> canMarkToday({
+    required String subjectId,
+    required String sectionId,
+    required int creditHours,
+  }) async {
+    final today = _formatDate(DateTime.now());
+
+    // Already marked today?
+    final todayRows = await _client
+        .from('attendance_sessions')
+        .select('id')
+        .eq('subject_id', subjectId)
+        .eq('section_id', sectionId)
+        .eq('date', today)
+        .limit(1);
+
+    if (todayRows.isNotEmpty) {
+      return (canMark: false, reason: 'Already marked for today.');
+    }
+
+    // Credit-hour cap
+    final sessions = await _client
+        .from('attendance_sessions')
+        .select('slot_count')
+        .eq('subject_id', subjectId)
+        .eq('section_id', sectionId);
+
+    final conducted = (sessions as List)
+        .fold<int>(0, (sum, r) => sum + ((r['slot_count'] as int?) ?? 1));
+
+    final maxSlots = creditHours * 15;
+    if (conducted >= maxSlots) {
+      return (
+        canMark: false,
+        reason: 'Slot limit reached ($conducted / $maxSlots).',
+      );
+    }
+
+    return (canMark: true, reason: null);
+  }
+
+  Future<List<AttendanceSession>> getSessionsForSection(String sectionId) async {
     final rows = await _client
         .from('attendance_sessions')
         .select()
         .eq('section_id', sectionId)
-        .order('date', ascending: false)
-        .order('slot', ascending: true);
+        .order('date', ascending: false);
 
     return (rows as List)
         .map((r) => AttendanceSession.fromSupabase(r as Map<String, dynamic>))
         .toList();
   }
 
-  Future<List<AttendanceSession>> getSessionsForTeacher(
-    String teacherId,
-  ) async {
+  Future<List<AttendanceSession>> getSessionsForTeacher(String teacherId) async {
     final rows = await _client
         .from('attendance_sessions')
         .select()
         .eq('teacher_id', teacherId)
-        .order('date', ascending: false)
-        .order('slot', ascending: true);
+        .order('date', ascending: false);
 
     return (rows as List)
         .map((r) => AttendanceSession.fromSupabase(r as Map<String, dynamic>))
         .toList();
   }
 
-  Future<List<AttendanceRecord>> getRecordsForSession(
-    String sessionId,
-  ) async {
+  Future<List<AttendanceRecord>> getRecordsForSession(String sessionId) async {
     final rows = await _client
         .from('attendance_records')
         .select()
