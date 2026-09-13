@@ -85,3 +85,7 @@ supabase_config.txt
 firebase-key.json
 *.env
 .env
+
+# Firebase leftovers (safe to ignore in Supabase project)
+serviceAccountKey.json
+firebase-key.json
