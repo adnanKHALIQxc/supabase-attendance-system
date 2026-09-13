@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../models/section.dart';
 import '../models/subject.dart';
 import '../models/teacher.dart';
@@ -20,7 +21,7 @@ class _AssignTeacherScreenState extends State<AssignTeacherScreen> {
   final _teacherService = TeacherService();
   final _assignmentService = AssignmentService();
 
-  late Future<List<Subject>> _subjectsFuture;
+  late Future<List<Subject>> _availableSubjectsFuture;
   late Future<List<Teacher>> _teachersFuture;
 
   Subject? _selectedSubject;
@@ -30,11 +31,22 @@ class _AssignTeacherScreenState extends State<AssignTeacherScreen> {
   @override
   void initState() {
     super.initState();
-    _subjectsFuture = _subjectService.getSubjectsFor(
+    _availableSubjectsFuture = _loadAvailableSubjects();
+    _teachersFuture = _teacherService.getAllTeachers();
+  }
+
+  Future<List<Subject>> _loadAvailableSubjects() async {
+    final all = await _subjectService.getSubjectsFor(
       departmentId: widget.section.departmentId,
       year: widget.section.year,
     );
-    _teachersFuture = _teacherService.getAllTeachers();
+
+    // Get already-assigned subject ids for this section
+    final assigned =
+        await _assignmentService.getAssignmentsForSection(widget.section.id);
+    final assignedIds = assigned.map((a) => a.subjectId).toSet();
+
+    return all.where((s) => !assignedIds.contains(s.id)).toList();
   }
 
   Future<void> _save() async {
@@ -60,11 +72,15 @@ class _AssignTeacherScreenState extends State<AssignTeacherScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Teacher assigned ✅')),
       );
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString().replaceFirst('Exception: ', '')}')),
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -81,9 +97,21 @@ class _AssignTeacherScreenState extends State<AssignTeacherScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             FutureBuilder<List<Subject>>(
-              future: _subjectsFuture,
+              future: _availableSubjectsFuture,
               builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const LinearProgressIndicator();
+                }
                 final subjects = snapshot.data ?? [];
+                if (subjects.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'All subjects for this year are already assigned to this section.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
                 return DropdownButtonFormField<Subject>(
                   initialValue: _selectedSubject,
                   decoration: const InputDecoration(

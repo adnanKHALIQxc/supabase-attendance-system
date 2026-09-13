@@ -14,11 +14,10 @@ class AssignmentService {
     required String academicYear,
     required int semester,
   }) async {
-    // Duplicate check
+        // Duplicate check — only one teacher per subject per section
     final existing = await _client
         .from('teaching_assignments')
         .select('id')
-        .eq('teacher_id', teacherId)
         .eq('subject_id', subjectId)
         .eq('section_id', sectionId)
         .limit(1);

@@ -186,6 +186,8 @@ SECTION 6 — SUPABASE SETUP PROGRESS
 [x] New GitHub repo created: supabase-attendance-system
 [x] Pushed initial code to new repo
 [x] CI workflow added + passing
+[x] Attendance refinements (slot count, credit-hour cap, per-day lock)
+[x] Subject attendance summary screen
 
 IN PROGRESS:
 [ ] Attendance marking code (models + services + screens)
@@ -551,6 +553,12 @@ DONE ✅
   - flutter analyze: No issues
   - Login form: eye icon, no autocorrect
   - Detailed error messages surfaced to user
+  - Attendance marking with subject-aware sessions
+  - Subject summary: slots conducted / max, per-student attended + %
+  - Credit-hour cap enforced (credit_hours × 15 slots max)
+  - One class per subject per section per day
+  - Slot count support (1 or 2 combined slots)
+  - Removed "late" status
 
 NOT YET BUILT ❌
   - Attendance marking code (models + services + screens)
@@ -567,25 +575,14 @@ NOT YET BUILT ❌
 ================================================================================
 SECTION 14 — NEXT UP
 ================================================================================
-NEXT FEATURE: Attendance Marking
-  Branch: feature/attendance-marking
-  Database: ALREADY DONE (attendance_sessions, attendance_records, RPC)
-
-  What to build in code:
-    - lib/models/attendance_session.dart
-    - lib/models/attendance_record.dart
-    - lib/services/attendance_service.dart
-        * createSession + records via RPC mark_attendance
-        * getSessionsForSection / getSessionsForTeacher
-        * getRecordsForSession
-    - lib/screens/mark_attendance_screen.dart
-        * list students with present/absent/late toggles
-        * slot picker, date picker, remarks
-        * submit → RPC
-    - Update teacher_dashboard_screen
-        * tap assignment → Mark Attendance screen
-    - Update section_detail_screen (admin view)
-        * show recent sessions
+NEXT FEATURE: Admin-side attendance viewing
+  Branch: feature/admin-attendance-view
+  What to build:
+    - Admin can view attendance per section
+    - Admin can view attendance per subject
+    - Summary across all sections of a department
+    - Per-student attendance drill-down
+    - Later: Excel export
 
 AFTER THAT:
   - Attendance history screen
