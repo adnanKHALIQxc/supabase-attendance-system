@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/attendance_record.dart';
 import '../models/attendance_session.dart';
 import '../models/attendance_summary.dart';
+import '../models/student_report.dart';
 
 class AttendanceService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -146,6 +147,15 @@ class AttendanceService {
     return (rows as List)
         .map((r) => AttendanceRecord.fromSupabase(r as Map<String, dynamic>))
         .toList();
+  }
+
+    /// Full student-level attendance report for a section.
+  /// Used by the Excel / PNG export feature.
+  Future<SectionReport> getSectionReport(String sectionId) async {
+    final res = await _client.rpc('get_section_attendance_report', params: {
+      'p_section_id': sectionId,
+    });
+    return SectionReport.fromSupabase(res);
   }
 
     /// Per-subject breakdown of a single student's attendance in a section.
