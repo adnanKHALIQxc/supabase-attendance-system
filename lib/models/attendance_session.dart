@@ -5,14 +5,14 @@ class AttendanceSession {
   final String sectionId;
   final String teacherId;
   final String teacherName;
-  final String date; // YYYY-MM-DD
+  final String date;
   final String slot;
+  final int slotCount;
   final String? startTime;
   final String? endTime;
   final int totalStudents;
   final int presentCount;
   final int absentCount;
-  final int lateCount;
   final String status;
 
   AttendanceSession({
@@ -24,12 +24,12 @@ class AttendanceSession {
     required this.teacherName,
     required this.date,
     required this.slot,
+    required this.slotCount,
     this.startTime,
     this.endTime,
     required this.totalStudents,
     required this.presentCount,
     required this.absentCount,
-    required this.lateCount,
     required this.status,
   });
 
@@ -43,12 +43,12 @@ class AttendanceSession {
       teacherName: (row['teacher_name'] as String?) ?? '',
       date: row['date']?.toString() ?? '',
       slot: (row['slot'] as String?) ?? '',
+      slotCount: (row['slot_count'] as int?) ?? 1,
       startTime: row['start_time'] as String?,
       endTime: row['end_time'] as String?,
       totalStudents: (row['total_students'] as int?) ?? 0,
       presentCount: (row['present_count'] as int?) ?? 0,
       absentCount: (row['absent_count'] as int?) ?? 0,
-      lateCount: (row['late_count'] as int?) ?? 0,
       status: (row['status'] as String?) ?? 'finalized',
     );
   }

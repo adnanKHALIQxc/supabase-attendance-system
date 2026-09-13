@@ -6,7 +6,7 @@ import '../providers/auth_provider.dart';
 import '../services/assignment_service.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
-import 'mark_attendance_screen.dart';
+import 'subject_attendance_screen.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -88,12 +88,13 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                   subtitle: Text('Section ${a.sectionId}'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
-                    await Navigator.push(
+                    final updated = await Navigator.push<bool>(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => MarkAttendanceScreen(assignment: a),
+                        builder: (_) => SubjectAttendanceScreen(assignment: a),
                       ),
                     );
+                    if (updated == true) _reload();
                   },
                 ),
               );

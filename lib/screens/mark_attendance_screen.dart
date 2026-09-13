@@ -1,25 +1,46 @@
 import 'package:flutter/material.dart';
 
 import '../models/student.dart';
+import '../models/subject.dart';
 import '../models/teaching_assignment.dart';
 import '../services/attendance_service.dart';
 import '../services/student_service.dart';
+import '../services/subject_service.dart';
 
+/// A selectable class slot — either 1 period or 2 combined periods.
 class ClassSlot {
   final String label;
   final String startTime;
   final String endTime;
+  final int count;
 
-  const ClassSlot(this.label, this.startTime, this.endTime);
+  const ClassSlot({
+    required this.label,
+    required this.startTime,
+    required this.endTime,
+    required this.count,
+  });
 }
 
-const List<ClassSlot> kClassSlots = [
-  ClassSlot('08:30 - 09:20', '08:30', '09:20'),
-  ClassSlot('09:30 - 10:20', '09:30', '10:20'),
-  ClassSlot('10:30 - 11:20', '10:30', '11:20'),
-  ClassSlot('11:30 - 12:20', '11:30', '12:20'),
-  ClassSlot('13:00 - 13:50', '13:00', '13:50'),
-  ClassSlot('14:00 - 14:50', '14:00', '14:50'),
+/// Single-period slots (8 total, breaks excluded)
+const List<ClassSlot> kSingleSlots = [
+  ClassSlot(label: '08:30 - 09:20', startTime: '08:30', endTime: '09:20', count: 1),
+  ClassSlot(label: '09:20 - 10:10', startTime: '09:20', endTime: '10:10', count: 1),
+  ClassSlot(label: '10:10 - 11:00', startTime: '10:10', endTime: '11:00', count: 1),
+  ClassSlot(label: '11:30 - 12:20', startTime: '11:30', endTime: '12:20', count: 1),
+  ClassSlot(label: '12:20 - 13:10', startTime: '12:20', endTime: '13:10', count: 1),
+  ClassSlot(label: '14:00 - 14:50', startTime: '14:00', endTime: '14:50', count: 1),
+  ClassSlot(label: '14:50 - 15:40', startTime: '14:50', endTime: '15:40', count: 1),
+  ClassSlot(label: '15:40 - 16:30', startTime: '15:40', endTime: '16:30', count: 1),
+];
+
+/// Double-period slots (5 combined ranges)
+const List<ClassSlot> kDoubleSlots = [
+  ClassSlot(label: '08:30 - 10:10', startTime: '08:30', endTime: '10:10', count: 2),
+  ClassSlot(label: '09:20 - 11:00', startTime: '09:20', endTime: '11:00', count: 2),
+  ClassSlot(label: '11:30 - 13:10', startTime: '11:30', endTime: '13:10', count: 2),
+  ClassSlot(label: '14:00 - 15:40', startTime: '14:00', endTime: '15:40', count: 2),
+  ClassSlot(label: '14:50 - 16:30', startTime: '14:50', endTime: '16:30', count: 2),
 ];
 
 class MarkAttendanceScreen extends StatefulWidget {
@@ -34,12 +55,13 @@ class MarkAttendanceScreen extends StatefulWidget {
 class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   final _studentService = StudentService();
   final _attendanceService = AttendanceService();
+  final _subjectService = SubjectService();
 
-  DateTime _date = DateTime.now();
-  ClassSlot _slot = kClassSlots.first;
+  int _slotCount = 1;
+  ClassSlot _slot = kSingleSlots.first;
 
   List<Student> _students = [];
-  final Map<String, String> _statuses = {}; // studentId → present/absent/late
+  final Map<String, String> _statuses = {};
 
   bool _loading = true;
   bool _submitting = false;
@@ -48,14 +70,43 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   @override
   void initState() {
     super.initState();
-    _loadStudents();
+    _load();
   }
 
-  Future<void> _loadStudents() async {
+  Future<void> _load() async {
     try {
+      // Load students
       final list =
           await _studentService.getStudents(widget.assignment.sectionId);
+
+      // Check pre-conditions (today already marked? credit cap reached?)
+      // We fetch the subject's credit hours first
+      List<Subject> subjects;
+      try {
+        subjects = await _subjectService
+            .getAllSubjects()
+            .then((all) => all.where((s) => s.id == widget.assignment.subjectId).toList());
+      } catch (_) {
+        subjects = [];
+      }
+      final creditHours = subjects.isEmpty ? 3 : subjects.first.creditHours;
+
+      final check = await _attendanceService.canMarkToday(
+        subjectId: widget.assignment.subjectId,
+        sectionId: widget.assignment.sectionId,
+        creditHours: creditHours,
+      );
+
       if (!mounted) return;
+
+      if (!check.canMark) {
+        setState(() {
+          _loadError = check.reason ?? 'Cannot mark attendance now.';
+          _loading = false;
+        });
+        return;
+      }
+
       setState(() {
         _students = list;
         _statuses.clear();
@@ -88,14 +139,12 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   int _countOf(String status) =>
       _statuses.values.where((v) => v == status).length;
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) setState(() => _date = picked);
+  void _onSlotCountChanged(int? count) {
+    if (count == null) return;
+    setState(() {
+      _slotCount = count;
+      _slot = count == 1 ? kSingleSlots.first : kDoubleSlots.first;
+    });
   }
 
   Future<void> _submit() async {
@@ -109,13 +158,12 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Confirm Attendance'),
         content: Text(
-          'Submit attendance for ${widget.assignment.subjectName}\n'
+          '${widget.assignment.subjectName}\n'
           'Section ${widget.assignment.sectionId}\n\n'
-          'Date: ${_formatDate(_date)}\n'
-          'Slot: ${_slot.label}\n\n'
+          'Date: ${_todayString()}\n'
+          'Slot: ${_slot.label}  ($_slotCount slot${_slotCount > 1 ? 's' : ''})\n\n'
           'Present: ${_countOf('present')}\n'
-          'Absent: ${_countOf('absent')}\n'
-          'Late: ${_countOf('late')}',
+          'Absent: ${_countOf('absent')}',
         ),
         actions: [
           TextButton(
@@ -150,20 +198,25 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
         sectionId: widget.assignment.sectionId,
         teacherId: widget.assignment.teacherId,
         teacherName: widget.assignment.teacherName,
-        date: _date,
+        date: DateTime.now(),
         slot: _slot.label,
+        slotCount: _slotCount,
         startTime: _slot.startTime,
         endTime: _slot.endTime,
         records: records,
       );
 
       if (!mounted) return;
-      _snack('Attendance marked ✅');
       Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Attendance marked ✅')),
+      );
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      _snack(msg, isError: true);
+      _snack(
+        e.toString().replaceFirst('Exception: ', ''),
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -178,8 +231,10 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     );
   }
 
-  String _formatDate(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String _todayString() {
+    final d = DateTime.now();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -202,21 +257,21 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _loadError != null
-              ? Center(child: Text('Error: $_loadError'))
+              ? _blockedView(_loadError!)
               : _students.isEmpty
                   ? const Center(
                       child: Text('No students in this section yet.'),
                     )
                   : Column(
                       children: [
-                        _topControls(),
+                        _controls(),
                         _summaryBar(),
                         _quickActions(),
                         const Divider(height: 1),
                         Expanded(child: _studentList()),
                       ],
                     ),
-      bottomNavigationBar: _loading || _students.isEmpty
+      bottomNavigationBar: _loading || _students.isEmpty || _loadError != null
           ? null
           : SafeArea(
               child: Padding(
@@ -242,32 +297,78 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     );
   }
 
-  Widget _topControls() {
+  Widget _blockedView(String reason) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.lock_clock, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            Text(
+              reason,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Go Back'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _controls() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
         children: [
           Expanded(
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.calendar_today, size: 18),
-              label: Text(_formatDate(_date)),
-              onPressed: _pickDate,
+            flex: 2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(
+                    _todayString(),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Today',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: DropdownButtonFormField<ClassSlot>(
-              initialValue: _slot,
+            flex: 2,
+            child: DropdownButtonFormField<int>(
+              initialValue: _slotCount,
               decoration: const InputDecoration(
-                labelText: 'Slot',
+                labelText: 'Slots',
                 border: OutlineInputBorder(),
                 contentPadding:
                     EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
-              items: kClassSlots
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                  .toList(),
-              onChanged: (v) => setState(() => _slot = v ?? _slot),
+              items: const [
+                DropdownMenuItem(value: 1, child: Text('1 slot')),
+                DropdownMenuItem(value: 2, child: Text('2 slots')),
+              ],
+              onChanged: _onSlotCountChanged,
             ),
           ),
         ],
@@ -275,16 +376,33 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
     );
   }
 
+  Widget _slotDropdown() {
+    final options = _slotCount == 1 ? kSingleSlots : kDoubleSlots;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: DropdownButtonFormField<ClassSlot>(
+        initialValue: options.contains(_slot) ? _slot : options.first,
+        decoration: const InputDecoration(
+          labelText: 'Time',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        ),
+        items: options
+            .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+            .toList(),
+        onChanged: (v) => setState(() => _slot = v ?? _slot),
+      ),
+    );
+  }
+
   Widget _summaryBar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           _statChip('Present', _countOf('present'), Colors.green),
           const SizedBox(width: 8),
           _statChip('Absent', _countOf('absent'), Colors.red),
-          const SizedBox(width: 8),
-          _statChip('Late', _countOf('late'), Colors.orange),
         ],
       ),
     );
@@ -318,7 +436,7 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
 
   Widget _quickActions() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
         children: [
           Expanded(
@@ -342,20 +460,27 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
   }
 
   Widget _studentList() {
-    return ListView.separated(
-      itemCount: _students.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        final s = _students[i];
-        final status = _statuses[s.id] ?? 'present';
-
-        return ListTile(
-          leading: CircleAvatar(child: Text(s.rollNo.substring(0, 1))),
-          title: Text(s.fullName),
-          subtitle: Text(s.rollNo),
-          trailing: _statusToggle(s.id, status),
-        );
-      },
+    return Column(
+      children: [
+        _slotDropdown(),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView.separated(
+            itemCount: _students.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final s = _students[i];
+              final status = _statuses[s.id] ?? 'present';
+              return ListTile(
+                leading: CircleAvatar(child: Text(s.rollNo.substring(0, 1))),
+                title: Text(s.fullName),
+                subtitle: Text(s.rollNo),
+                trailing: _statusToggle(s.id, status),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -365,7 +490,6 @@ class _MarkAttendanceScreenState extends State<MarkAttendanceScreen> {
       children: [
         _toggleBtn(studentId, current, 'present', Icons.check, Colors.green),
         _toggleBtn(studentId, current, 'absent', Icons.close, Colors.red),
-        _toggleBtn(studentId, current, 'late', Icons.schedule, Colors.orange),
       ],
     );
   }

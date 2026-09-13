@@ -15,7 +15,7 @@ This project is currently under active development.
 ## 🛠️ Tech Stack
 
 *   **Framework:** Flutter
-*   **Backend:** Firebase (Authentication, Cloud Firestore, Cloud Functions)
+*   **Backend:** Supabase (Authentication, Cloud Firestore, Cloud Functions)
 *   **State Management:** Provider
 
 ## 🚀 Getting Started
